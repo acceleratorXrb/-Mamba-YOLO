@@ -849,11 +849,15 @@ class DetMetrics(SimpleClass):
     @property
     def keys(self):
         """Returns a list of keys for accessing specific metrics."""
-        return ["metrics/precision(B)", "metrics/recall(B)", "metrics/mAP50(B)", "metrics/mAP50-95(B)"]
+        return [
+            "metrics/precision(B)", "metrics/recall(B)", "metrics/mAP50(B)", "metrics/mAP50-95(B)",
+            "metrics/mAP75(B)", "metrics/mAPs(B)", "metrics/mAPm(B)", "metrics/mAPl(B)",
+        ]
 
     def mean_results(self):
-        """Calculate mean of detected objects & return precision, recall, mAP50, and mAP50-95."""
-        return self.box.mean_results()
+        """Calculate mean of detected objects & return all AP metrics."""
+        return [self.box.mp, self.box.mr, self.box.map50, self.box.map,
+                self.box.map75, 0.0, 0.0, 0.0]
 
     def class_result(self, i):
         """Return the result of evaluating the performance of an object detection model on a specific class."""
@@ -867,7 +871,8 @@ class DetMetrics(SimpleClass):
     @property
     def fitness(self):
         """Returns the fitness of box object."""
-        return self.box.fitness()
+        w = [0.0, 0.0, 0.1, 0.9, 0.0, 0.0, 0.0, 0.0]
+        return (np.array(self.mean_results()) * w).sum()
 
     @property
     def ap_class_index(self):
@@ -1248,11 +1253,15 @@ class OBBMetrics(SimpleClass):
     @property
     def keys(self):
         """Returns a list of keys for accessing specific metrics."""
-        return ["metrics/precision(B)", "metrics/recall(B)", "metrics/mAP50(B)", "metrics/mAP50-95(B)"]
+        return [
+            "metrics/precision(B)", "metrics/recall(B)", "metrics/mAP50(B)", "metrics/mAP50-95(B)",
+            "metrics/mAP75(B)", "metrics/mAPs(B)", "metrics/mAPm(B)", "metrics/mAPl(B)",
+        ]
 
     def mean_results(self):
-        """Calculate mean of detected objects & return precision, recall, mAP50, and mAP50-95."""
-        return self.box.mean_results()
+        """Calculate mean of detected objects & return all AP metrics."""
+        return [self.box.mp, self.box.mr, self.box.map50, self.box.map,
+                self.box.map75, 0.0, 0.0, 0.0]
 
     def class_result(self, i):
         """Return the result of evaluating the performance of an object detection model on a specific class."""
@@ -1266,7 +1275,8 @@ class OBBMetrics(SimpleClass):
     @property
     def fitness(self):
         """Returns the fitness of box object."""
-        return self.box.fitness()
+        w = [0.0, 0.0, 0.1, 0.9, 0.0, 0.0, 0.0, 0.0]
+        return (np.array(self.mean_results()) * w).sum()
 
     @property
     def ap_class_index(self):

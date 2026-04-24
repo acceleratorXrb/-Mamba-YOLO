@@ -1,5 +1,6 @@
 # Ultralytics YOLO 🚀, AGPL-3.0 license
 
+import json
 import os
 from pathlib import Path
 
@@ -70,7 +71,10 @@ class DetectionValidator(BaseValidator):
         self.is_coco = isinstance(val, str) and "coco" in val and val.endswith(f"{os.sep}val2017.txt")  # is COCO
         self.is_lvis = isinstance(val, str) and "lvis" in val and not self.is_coco  # is LVIS
         self.class_map = converter.coco80_to_coco91_class() if self.is_coco else list(range(len(model.names)))
-        self.args.save_json |= (self.is_coco or self.is_lvis) and not self.training  # run on final val if training COCO
+        # Enable COCO-style evaluation for any dataset during standalone validation (not during training)
+        if not self.training:
+            self.args.save_json = True
+        self.is_coco = self.is_coco or (self.args.save_json and not self.training)
         self.names = model.names
         self.nc = len(model.names)
         self.metrics.names = self.names
@@ -79,10 +83,12 @@ class DetectionValidator(BaseValidator):
         self.seen = 0
         self.jdict = []
         self.stats = dict(tp=[], conf=[], pred_cls=[], target_cls=[], target_img=[])
+        # Map image file path to integer ID for COCO eval consistency
+        self._im_id_map = {str(p): i + 1 for i, p in enumerate(self.dataloader.dataset.im_files)}
 
     def get_desc(self):
         """Return a formatted string summarizing class metrics of YOLO model."""
-        return ("%22s" + "%11s" * 6) % ("Class", "Images", "Instances", "Box(P", "R", "mAP50", "mAP50-95)")
+        return ("%22s" + "%11s" * 10) % ("Class", "Images", "Instances", "P", "R", "mAP50", "mAP50-95", "mAP75", "mAPs", "mAPm", "mAPl")
 
     def postprocess(self, preds):
         """Apply Non-maximum suppression to prediction outputs."""
@@ -264,8 +270,7 @@ class DetectionValidator(BaseValidator):
 
     def pred_to_json(self, predn, filename):
         """Serialize YOLO predictions to COCO json format."""
-        stem = Path(filename).stem
-        image_id = int(stem) if stem.isnumeric() else stem
+        image_id = self._im_id_map[str(filename)]
         box = ops.xyxy2xywh(predn[:, :4])  # xywh
         box[:, :2] -= box[:, 2:] / 2  # xy center to top-left corner
         for p, b in zip(predn.tolist(), box.tolist()):
@@ -280,43 +285,95 @@ class DetectionValidator(BaseValidator):
             )
 
     def eval_json(self, stats):
-        """Evaluates YOLO output in JSON format and returns performance statistics."""
-        if self.args.save_json and (self.is_coco or self.is_lvis) and len(self.jdict):
-            pred_json = self.save_dir / "predictions.json"  # predictions
-            anno_json = (
-                self.data["path"]
-                / "annotations"
-                / ("instances_val2017.json" if self.is_coco else f"lvis_v1_{self.args.split}.json")
-            )  # annotations
-            pkg = "pycocotools" if self.is_coco else "lvis"
-            LOGGER.info(f"\nEvaluating {pkg} mAP using {pred_json} and {anno_json}...")
-            try:  # https://github.com/cocodataset/cocoapi/blob/master/PythonAPI/pycocoEvalDemo.ipynb
+        """Evaluate YOLO output in JSON format and return full COCO AP metrics."""
+        if self.args.save_json and len(self.jdict):
+            pred_json = self.save_dir / "predictions.json"
+            anno_json = self.save_dir / "annotations.json"
+
+            # Generate COCO-format ground truth from YOLO labels
+            self._generate_coco_annotations(anno_json)
+
+            LOGGER.info(f"\nEvaluating pycocotools mAP using {pred_json} and {anno_json}...")
+            try:
                 for x in pred_json, anno_json:
                     assert x.is_file(), f"{x} file not found"
-                check_requirements("pycocotools>=2.0.6" if self.is_coco else "lvis>=0.5.3")
-                if self.is_coco:
-                    from pycocotools.coco import COCO  # noqa
-                    from pycocotools.cocoeval import COCOeval  # noqa
+                check_requirements("pycocotools>=2.0.6")
+                from pycocotools.coco import COCO  # noqa
+                from pycocotools.cocoeval import COCOeval  # noqa
 
-                    anno = COCO(str(anno_json))  # init annotations api
-                    pred = anno.loadRes(str(pred_json))  # init predictions api (must pass string, not Path)
-                    val = COCOeval(anno, pred, "bbox")
-                else:
-                    from lvis import LVIS, LVISEval
-
-                    anno = LVIS(str(anno_json))  # init annotations api
-                    pred = anno._load_json(str(pred_json))  # init predictions api (must pass string, not Path)
-                    val = LVISEval(anno, pred, "bbox")
-                val.params.imgIds = [int(Path(x).stem) for x in self.dataloader.dataset.im_files]  # images to eval
+                anno = COCO(str(anno_json))
+                pred = anno.loadRes(str(pred_json))
+                val = COCOeval(anno, pred, "bbox")
+                val.params.imgIds = list(self._im_id_map.values())
                 val.evaluate()
                 val.accumulate()
                 val.summarize()
-                if self.is_lvis:
-                    val.print_results()  # explicitly call print_results
-                # update mAP50-95 and mAP50
-                stats[self.metrics.keys[-1]], stats[self.metrics.keys[-2]] = (
-                    val.stats[:2] if self.is_coco else [val.results["AP50"], val.results["AP"]]
-                )
+                # COCO stats order: [AP, AP50, AP75, APs, APm, APl, AR1, AR10, AR100, ARs, ARm, ARl]
+                stats["metrics/mAP50-95(B)"] = val.stats[0]
+                stats["metrics/mAP50(B)"] = val.stats[1]
+                stats["metrics/mAP75(B)"] = val.stats[2]
+                stats["metrics/mAPs(B)"] = val.stats[3]
+                stats["metrics/mAPm(B)"] = val.stats[4]
+                stats["metrics/mAPl(B)"] = val.stats[5]
             except Exception as e:
-                LOGGER.warning(f"{pkg} unable to run: {e}")
+                LOGGER.warning(f"pycocotools unable to run: {e}")
         return stats
+
+    def _generate_coco_annotations(self, anno_json_path):
+        """Generate COCO-format annotation JSON from YOLO label files."""
+        from PIL import Image
+
+        images = []
+        annotations = []
+        ann_id = 0
+
+        for img_id, img_path in enumerate(self.dataloader.dataset.im_files, 1):
+            try:
+                with Image.open(str(img_path)) as im:
+                    w, h = im.size
+            except Exception:
+                w, h = 0, 0
+
+            images.append({
+                "id": img_id,
+                "file_name": img_path.name,
+                "width": w,
+                "height": h,
+            })
+
+            # Read the corresponding YOLO label file
+            label_path = str(img_path).replace("/images/", "/labels/").replace(".jpg", ".txt").replace(".png", ".txt")
+            try:
+                with open(label_path, "r") as f:
+                    for line in f:
+                        parts = line.strip().split()
+                        if len(parts) < 5:
+                            continue
+                        cls = int(parts[0])
+                        xc, yc, bw, bh = map(float, parts[1:5])
+                        x1 = (xc - bw / 2) * w
+                        y1 = (yc - bh / 2) * h
+                        box_w = bw * w
+                        box_h = bh * h
+                        ann_id += 1
+                        annotations.append({
+                            "id": ann_id,
+                            "image_id": img_id,
+                            "category_id": cls + 1,  # COCO uses 1-indexed categories
+                            "bbox": [round(x1, 2), round(y1, 2), round(box_w, 2), round(box_h, 2)],
+                            "area": round(box_w * box_h, 2),
+                            "iscrowd": 0,
+                        })
+            except FileNotFoundError:
+                pass
+
+        categories = [{"id": i + 1, "name": name} for i, name in self.names.items()]
+
+        coco_format = {
+            "images": images,
+            "annotations": annotations,
+            "categories": categories,
+        }
+
+        with open(str(anno_json_path), "w") as f:
+            json.dump(coco_format, f)

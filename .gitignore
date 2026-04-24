@@ -4,6 +4,9 @@ __pycache__/
 *$py.class
 .idea
 output_dir
+/datasets/
+.claude/
+yolov8n.pt
 ultralytics.egg-info
 docs
 examples

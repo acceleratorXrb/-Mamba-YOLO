@@ -8,10 +8,10 @@
 #     └── VisDrone  ← downloads here (2.3 GB)
 
 # Train/val/test sets as 1) dir: path/to/imgs, 2) file: path/to/imgs.txt, or 3) list: [path/to/imgs1, path/to/imgs2, ..]
-path: /mnt/datasets/VisDrone2019 # dataset root dir
-train: VisDrone2019-DET-train/images # train images (relative to 'path')  6471 images
-val: VisDrone2019-DET-val/images # val images (relative to 'path')  548 images
-test: VisDrone2019-DET-test-dev/images # test images (optional)  1610 images
+path: /home/xrb/桌面/mamba-yolo/datasets/VisDrone2019 # dataset root dir
+train: images/train  # train images (relative to 'path')  6471 images
+val: images/val      # val images (relative to 'path')  548 images
+test: images/test    # test images (optional)  1610 images
 
 # Classes
 names:
