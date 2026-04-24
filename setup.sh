@@ -38,17 +38,24 @@ detect_os() {
     echo "  系统: $OS $OS_VERSION"
 }
 
+# 检测是否需要 sudo（容器环境通常以 root 运行，无 sudo）
+if [ "$(id -u)" -eq 0 ]; then
+    SUDO=""
+else
+    SUDO="sudo"
+fi
+
 install_pkg() {
     local pkg=$1
-    if dpkg -s "$pkg" &>/dev/null; then
+    if dpkg -s "$pkg" &>/dev/null 2>&1; then
         echo "    ✓ $pkg 已安装"
         return 0
     fi
     echo "    → 安装 $pkg..."
     if [ "$OS" = "ubuntu" ] || [ "$OS" = "debian" ]; then
-        sudo apt-get install -y "$pkg" -qq 2>&1 | tail -1
+        $SUDO apt-get install -y "$pkg" -qq 2>&1 | tail -1
     elif [ "$OS" = "centos" ] || [ "$OS" = "rhel" ]; then
-        sudo yum install -y "$pkg" -q 2>&1 | tail -1
+        $SUDO yum install -y "$pkg" -q 2>&1 | tail -1
     else
         echo -e "${RED}不支持的 OS: $OS${NC}"
         exit 1
@@ -89,15 +96,15 @@ else
     if [ "$OS" = "ubuntu" ]; then
         # Ubuntu 22.04 需要 deadsnakes PPA
         if [ "$OS_VERSION" = "22.04" ]; then
-            sudo apt-get install -y software-properties-common -qq
-            sudo add-apt-repository -y ppa:deadsnakes/ppa -qq 2>&1 | tail -1
+            $SUDO apt-get install -y software-properties-common -qq
+            $SUDO add-apt-repository -y ppa:deadsnakes/ppa -qq 2>&1 | tail -1
         fi
-        sudo apt-get update -qq 2>&1 | tail -1
+        $SUDO apt-get update -qq 2>&1 | tail -1
         install_pkg "python3.12"
         install_pkg "python3.12-venv"
         install_pkg "python3.12-dev"
     elif [ "$OS" = "debian" ]; then
-        sudo apt-get update -qq 2>&1 | tail -1
+        $SUDO apt-get update -qq 2>&1 | tail -1
         install_pkg "python3"
         install_pkg "python3-venv"
         install_pkg "python3-dev"
@@ -141,17 +148,17 @@ if [ "$CUDA_AVAILABLE" = false ]; then
         # 尝试从 NVIDIA 官方仓库安装 cuda-toolkit
         if ! dpkg -s cuda-toolkit-12-3 &>/dev/null && ! dpkg -s cuda-toolkit-12-4 &>/dev/null; then
             echo "  → 从 apt 安装 nvidia-cuda-toolkit..."
-            sudo apt-get update -qq 2>&1 | tail -1
+            $SUDO apt-get update -qq 2>&1 | tail -1
             # 优先用 apt 自带的
             if apt-cache show nvidia-cuda-toolkit &>/dev/null 2>&1; then
-                sudo apt-get install -y nvidia-cuda-toolkit -qq 2>&1 | tail -3
+                $SUDO apt-get install -y nvidia-cuda-toolkit -qq 2>&1 | tail -3
             else
                 # 尝试 NVIDIA 官方 repo
                 wget -q https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/cuda-keyring_1.1-1_all.deb -O /tmp/cuda-keyring.deb 2>/dev/null
-                sudo dpkg -i /tmp/cuda-keyring.deb 2>/dev/null || true
-                sudo apt-get update -qq 2>&1 | tail -1
-                sudo apt-get install -y cuda-toolkit-12-4 -qq 2>&1 | tail -3 || \
-                sudo apt-get install -y cuda-toolkit-12-3 -qq 2>&1 | tail -3 || true
+                $SUDO dpkg -i /tmp/cuda-keyring.deb 2>/dev/null || true
+                $SUDO apt-get update -qq 2>&1 | tail -1
+                $SUDO apt-get install -y cuda-toolkit-12-4 -qq 2>&1 | tail -3 || \
+                $SUDO apt-get install -y cuda-toolkit-12-3 -qq 2>&1 | tail -3 || true
             fi
         fi
 
