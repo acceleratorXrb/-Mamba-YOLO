@@ -1,0 +1,96 @@
+# Mamba-YOLO VisDrone-VID Dataset Configuration
+# VisDrone-VID: Video Object Detection in Drone Imagery
+# https://github.com/VisDrone/VisDrone-Dataset
+#
+# Dataset structure:
+#   VisDrone-VID/
+#     images/
+#       train/    # training frames
+#       val/      # validation frames
+#       test/     # test frames
+#     labels/
+#       train/    # YOLO format labels
+#       val/      # YOLO format labels
+#       test/     # YOLO format labels
+
+path: /home/xrb/桌面/mamba-yolo/datasets/VisDrone-VID
+train: images/train
+val: images/val
+test: images/test
+
+# VisDrone-VID Classes (10 categories)
+names:
+  0: pedestrian
+  1: people
+  2: bicycle
+  3: car
+  4: van
+  5: truck
+  6: tricycle
+  7: awning-tricycle
+  8: bus
+  9: motor
+
+nc: 10
+
+download: |
+  import os
+  import zipfile
+  from pathlib import Path
+  from PIL import Image
+  from tqdm import tqdm
+  from ultralytics.utils.downloads import download
+
+  def visdrone_vid2yolo(ann_dir, img_dir, label_dir):
+      """Convert VisDrone-VID annotations to YOLO format."""
+      label_dir = Path(label_dir)
+      label_dir.mkdir(parents=True, exist_ok=True)
+      ann_dir = Path(ann_dir)
+      img_dir = Path(img_dir)
+
+      for ann_file in tqdm(sorted(ann_dir.glob('*.txt')), desc=f'Converting {ann_dir.parent.name}'):
+          img_file = img_dir / ann_file.name.replace('.txt', '.jpg')
+          if not img_file.exists():
+              img_file = img_dir / ann_file.name.replace('.txt', '.png')
+          if not img_file.exists():
+              continue
+
+          img_size = Image.open(img_file).size
+          dw, dh = 1.0 / img_size[0], 1.0 / img_size[1]
+
+          lines = []
+          with open(ann_file, 'r') as f:
+              for line in f:
+                  parts = line.strip().split(',')
+                  if len(parts) < 8:
+                      continue
+                  # VisDrone format: bbox_left, bbox_top, bbox_width, bbox_height, score, category, truncation, occlusion
+                  if int(parts[4]) == 0 and int(parts[5]) == 0:  # skip ignored regions (class 0, score 0)
+                      continue
+                  cls = int(parts[5]) - 1  # VisDrone classes start from 1
+                  if cls < 0 or cls >= 10:
+                      continue
+                  x1, y1, w, h = map(float, parts[:4])
+                  xc = (x1 + w / 2) * dw
+                  yc = (y1 + h / 2) * dh
+                  nw = w * dw
+                  nh = h * dh
+                  lines.append(f'{cls} {xc:.6f} {yc:.6f} {nw:.6f} {nh:.6f}\n')
+
+          label_file = label_dir / ann_file.name
+          with open(label_file, 'w') as f:
+              f.writelines(lines)
+
+  # Download URLs (official VisDrone-VID)
+  dir = Path(yaml['path'])
+  urls = ['https://github.com/ultralytics/yolov5/releases/download/v1.0/VisDrone2019-VID-train.zip',
+          'https://github.com/ultralytics/yolov5/releases/download/v1.0/VisDrone2019-VID-val.zip']
+  download(urls, dir=dir, curl=True, threads=4)
+
+  for split in ['VisDrone2019-VID-train', 'VisDrone2019-VID-val']:
+      if (dir / split).exists():
+          visdrone_vid2yolo(
+              dir / split / 'annotations',
+              dir / split / 'images',
+              dir / split / 'labels'
+          )
