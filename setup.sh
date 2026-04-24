@@ -53,7 +53,12 @@ install_pkg() {
     fi
     echo "    → 安装 $pkg..."
     if [ "$OS" = "ubuntu" ] || [ "$OS" = "debian" ]; then
-        $SUDO apt-get install -y "$pkg" -qq 2>&1 | tail -1
+        $SUDO apt-get install -y "$pkg" -qq 2>&1 | tail -1 || {
+            # 缓存过期则更新后重试
+            echo "    更新 apt 缓存后重试..."
+            $SUDO apt-get update -qq 2>&1 | tail -1
+            $SUDO apt-get install -y "$pkg" -qq 2>&1 | tail -1
+        }
     elif [ "$OS" = "centos" ] || [ "$OS" = "rhel" ]; then
         $SUDO yum install -y "$pkg" -q 2>&1 | tail -1
     else
@@ -94,12 +99,13 @@ if find_python; then
 else
     echo "  Python >= 3.11 未找到，自动安装 Python 3.12..."
     if [ "$OS" = "ubuntu" ]; then
+        $SUDO apt-get update -qq 2>&1 | tail -1
         # Ubuntu 22.04 需要 deadsnakes PPA
         if [ "$OS_VERSION" = "22.04" ]; then
-            $SUDO apt-get install -y software-properties-common -qq
+            install_pkg "software-properties-common"
             $SUDO add-apt-repository -y ppa:deadsnakes/ppa -qq 2>&1 | tail -1
+            $SUDO apt-get update -qq 2>&1 | tail -1
         fi
-        $SUDO apt-get update -qq 2>&1 | tail -1
         install_pkg "python3.12"
         install_pkg "python3.12-venv"
         install_pkg "python3.12-dev"
