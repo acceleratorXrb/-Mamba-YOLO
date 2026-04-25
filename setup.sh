@@ -498,7 +498,7 @@ FILES = {
         'size_gb': 1.5,
     },
     'VisDrone2019-VID-test-dev.zip': {
-        'hf': None,  # hf-mirror 暂无 test-dev
+        'hf': f'{HF_MIRROR}/VisDrone2019-VID-test-dev.zip',
         'gd_id': '1-BEq--FcjshTF1UwUabby_LHhYj41os5',
         'size_gb': 2.1,
     },
@@ -512,6 +512,7 @@ def download_http(url, output_path, label):
         print(f'  ✓ {output_path.name} 已存在，跳过')
         return True
     print(f'  ⬇ {label}: {output_path.name} ...')
+    tmp = None
     try:
         with requests.get(url, stream=True, timeout=(30, 120)) as resp:
             resp.raise_for_status()
@@ -542,7 +543,7 @@ def download_http(url, output_path, label):
             return True
     except Exception as e:
         print(f'\n  ✗ {output_path.name} HTTP 下载失败: {e}')
-        if tmp.exists():
+        if tmp and tmp.exists():
             tmp.unlink()
         return False
 
