@@ -1,6 +1,6 @@
 # [AAAI2025] Mamba YOLO: A Simple Baseline for Object Detection with State Space Model
 
-![Python 3.11](https://img.shields.io/badge/python-3.11-g) ![pytorch 2.3.0](https://img.shields.io/badge/pytorch-2.3.0-blue.svg)
+![Python 3.11](https://img.shields.io/badge/python-3.11-g) ![pytorch 2.5.1](https://img.shields.io/badge/pytorch-2.5.1-blue.svg)
 
 <div align="center">
   <img src="./asserts/mambayolo.jpg" width="1200px"/>
@@ -103,9 +103,9 @@ Head: Detect(P3, P4, P5)
 
 ```
 mamba-yolo/
+├── setup.sh                         # ★ 一键环境安装脚本
+├── env.sh                           # 激活训练环境 (source env.sh)
 ├── mbyolo_train.py                  # ★ 训练/验证/测试 入口脚本
-├── run_all_models.sh                # 批量训练 T/B/L 三个模型的脚本
-├── yolov8n.pt                       # YOLOv8n 预训练权重
 ├── pyproject.toml                   # 项目元数据和依赖
 ├── README.md                        # 本文件
 ├── USE.md                           # 详细使用指南
@@ -113,10 +113,10 @@ mamba-yolo/
 ├── venv/                            # Python 虚拟环境（已装好所有依赖）
 │
 ├── datasets/                        # 数据集存放
-│   ├── VisDrone2019/                # VisDrone-DET 数据集
-│   │   ├── images/train/            #   6471 张训练图
-│   │   ├── images/val/              #   548 张验证图
-│   │   ├── images/test/             #   1610 张测试图
+│   ├── VisDrone-VID/                # VisDrone-VID 视频目标检测
+│   │   ├── images/train/            #   训练图片
+│   │   ├── images/val/              #   验证图片
+│   │   ├── images/test/             #   测试图片
 │   │   └── labels/{train,val,test}/ #   YOLO 格式标注
 │   └── coco8/                       # COCO 8张小样本（调试用）
 │
@@ -124,8 +124,8 @@ mamba-yolo/
 │   ├── cfg/
 │   │   ├── default.yaml             # ★ 全局超参数配置
 │   │   ├── datasets/                # 数据集配置
-│   │   │   ├── VisDrone.yaml        #   VisDrone-DET 路径和10类定义
-│   │   │   └── VisDrone-VID.yaml    #   VisDrone-VID（视频目标检测）
+│   │   │   ├── VisDrone-VID.yaml    #   VisDrone-VID 视频目标检测 (当前数据集)
+│   │   │   └── VisDrone.yaml        #   VisDrone-DET 静态图像检测
 │   │   └── models/mamba-yolo/
 │   │       ├── Mamba-YOLO-T.yaml    #   Tiny 模型结构定义
 │   │       ├── Mamba-YOLO-B.yaml    #   Base 模型结构定义
@@ -150,8 +150,8 @@ mamba-yolo/
 │   ├── csrc/                        #   CUDA 源码
 │   └── build/                       #   编译好的 .so 文件
 │
-├── output_dir/VisDrone/             # 训练输出
-│   └── mambayolo_T/                 # Tiny 模型的训练结果
+├── output_dir/VisDrone-VID/         # 训练输出
+│   └── mamba_yolo_t/                # Tiny 模型的训练结果
 │       ├── weights/                 #   模型权重
 │       ├── args.yaml                #   训练参数记录
 │       ├── results.csv              #   训练日志
@@ -168,15 +168,22 @@ mamba-yolo/
 ### 1. 环境要求
 
 - Python 3.11+
-- PyTorch 2.3.0 + CUDA 12.1
+- PyTorch 2.5.1 + CUDA 12.1
 - RTX 3070 8GB 或更高显存 GPU
 
-### 2. 激活虚拟环境
+### 2. 一键安装
 
 ```bash
-source venv/bin/activate
-export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 cd /home/xrb/桌面/mamba-yolo
+bash setup.sh
+```
+
+setup.sh 自动完成：Python 虚拟环境 → PyTorch → 依赖包 → selective_scan 编译 → VisDrone-VID 数据集下载与转换。
+
+### 3. 激活虚拟环境
+
+```bash
+source env.sh
 ```
 
 ---
@@ -204,7 +211,7 @@ python mbyolo_train.py --model T --task val
 
 # 指定权重文件验证
 python mbyolo_train.py --model B --task val \
-    --weights output_dir/VisDrone/mambayolo_b/weights/best.pt
+    --weights output_dir/VisDrone-VID/mamba_yolo_b/weights/best.pt
 ```
 
 验证时自动输出 **COCO 官方全套 AP 指标**：
@@ -255,7 +262,7 @@ python mbyolo_train.py --model T --task test
 | `--cos_lr` | True | 余弦学习率衰减 |
 | `--close_mosaic` | 10 | 最后N轮关闭 mosaic 增强 |
 | `--amp` | True | 自动混合精度 |
-| `--project` | output_dir/VisDrone | 输出根目录 |
+| `--project` | output_dir/VisDrone-VID | 输出根目录 |
 | `--name` | 自动生成 | 实验名称 |
 | `--weights` | None | 预训练权重路径 |
 | `--resume` | False | 断点续训 |
@@ -305,17 +312,17 @@ label_smoothing: 0.0 # 标签平滑
 python mbyolo_train.py --model T --task train --epochs 50 --name quick_exp
 
 # 2. 正式训练 Base 模型
-python mbyolo_train.py --model B --task train --epochs 200 --name final_base
+python mbyolo_train.py --model B --task train --epochs 200
 
 # 3. 换优化器+调学习率
 python mbyolo_train.py --model B --task train --epochs 200 \
     --lr 0.001 --optimizer AdamW --name exp_adamw
 
 # 4. 评估模型（自动输出完整 COCO AP）
-python mbyolo_train.py --model B --task val --name final_base
+python mbyolo_train.py --model B --task val
 
 # 5. 测试集评估
-python mbyolo_train.py --model B --task test --name final_base
+python mbyolo_train.py --model B --task test
 
 # 6. 小尺寸省显存训练
 python mbyolo_train.py --model L --task train --epochs 100 --imgsz 512 --batch_size 1
@@ -344,25 +351,31 @@ RTX 3070 8GB 实测（640×640 输入，AMP 开启）：
 
 ## 数据集格式
 
-YOLO 标注格式（每张图片对应一个同名 `.txt`）：
+### VisDrone-VID（视频目标检测）
+
+10 种类别：pedestrian, people, bicycle, car, van, truck, tricycle, awning-tricycle, bus, motor
+
+setup.sh 自动将 VID 原始格式（per-sequence annotations + 帧图片）转换为 YOLO 格式：
 
 ```
 <class_id> <x_center> <y_center> <width> <height>
 ```
 
-所有坐标归一化到 [0, 1]。目录结构：
+所有坐标归一化到 [0, 1]。图片命名采用时序规范 `<seq_name>_img<frame_id:07d>.jpg`。
+
+### 目录结构
 
 ```
-datasets/<数据集名>/
+datasets/VisDrone-VID/
 ├── images/
-│   ├── train/        # 训练图片
-│   ├── val/          # 验证图片
+│   ├── train/        # 训练图片 (~29K)
+│   ├── val/          # 验证图片 (~3.7K)
 │   └── test/         # 测试图片
 ├── labels/
 │   ├── train/        # YOLO 标注
 │   ├── val/
 │   └── test/
-└── dataset.yaml      # 数据集描述（见 ultralytics/cfg/datasets/）
+└── dataset.yaml      # 数据集描述 (ultralytics/cfg/datasets/VisDrone-VID.yaml)
 ```
 
 ---
@@ -386,11 +399,10 @@ datasets/<数据集名>/
 
 核心依赖（已装在 venv 中）：
 
-- PyTorch 2.3.0 + CUDA 12.1
-- timm（DropPath）
-- einops（tensor 重排）
-- pycocotools（COCO AP 指标计算）
-- seaborn, thop（可视化和 FLOPs 计算）
+- PyTorch 2.5.1 + CUDA 12.1
+- timm (DropPath)
+- einops (tensor 重排)
+- pycocotools (COCO AP 指标计算)
 
 ---
 
