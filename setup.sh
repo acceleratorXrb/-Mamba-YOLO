@@ -468,6 +468,7 @@ else
     echo ""
 
     mkdir -p "$VISDRONE_DIR"
+    export VISDRONE_DIR
 
     # 确保 requests 已安装
     pip install requests -q
