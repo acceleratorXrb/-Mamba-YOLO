@@ -435,78 +435,232 @@ else
     exit 1
 fi
 
-# 7. 下载 VisDrone 数据集
+# 7. 下载 VisDrone-VID 数据集
 echo ""
-echo "[7/8] 准备 VisDrone2019 数据集..."
+echo "[7/8] 准备 VisDrone-VID 数据集..."
 
-VISDRONE_DIR="$DATASETS_DIR/VisDrone2019"
+VISDRONE_DIR="$DATASETS_DIR/VisDrone-VID"
 
-# 更新 VisDrone.yaml 路径为当前项目目录
-python -c "
+# 更新 VisDrone-VID.yaml 路径为当前项目目录
+python3 << PYEOF
 import re
-yaml_path = '$PROJECT_DIR/ultralytics/cfg/datasets/VisDrone.yaml'
+yaml_path = '$PROJECT_DIR/ultralytics/cfg/datasets/VisDrone-VID.yaml'
 with open(yaml_path) as f:
     content = f.read()
 content = re.sub(r'^path:.*$', f'path: $VISDRONE_DIR', content, flags=re.M)
 with open(yaml_path, 'w') as f:
     f.write(content)
-"
+PYEOF
 
 if [ -d "$VISDRONE_DIR/images/train" ] && [ -d "$VISDRONE_DIR/images/val" ]; then
     TRAIN_COUNT=$(find "$VISDRONE_DIR/images/train" -type f \( -name "*.jpg" -o -name "*.png" \) 2>/dev/null | wc -l)
     VAL_COUNT=$(find "$VISDRONE_DIR/images/val" -type f \( -name "*.jpg" -o -name "*.png" \) 2>/dev/null | wc -l)
     echo "  ✓ 数据集已存在: 训练${TRAIN_COUNT}张, 验证${VAL_COUNT}张"
 else
-    echo "  → 下载 VisDrone 数据集 (约 2.3GB)..."
-    echo "  从 Ultralytics 镜像下载 YOLO 格式数据..."
+    echo "  → 下载 VisDrone-VID 数据集 (约 11GB，需要较长时间)..."
+    echo "  下载源: Google Drive"
+    echo ""
 
     mkdir -p "$VISDRONE_DIR"
 
-    python -c "
-import sys
+    pip install gdown -q
+
+    python3 << 'PYEOF'
+import os, sys, zipfile, shutil, traceback
 from pathlib import Path
-from ultralytics.utils.downloads import download
+from PIL import Image
 
-visdrone_dir = Path('$VISDRONE_DIR')
-base_url = 'https://github.com/ultralytics/yolov5/releases/download/v1.0'
+visdrone_dir = Path(os.environ['VISDRONE_DIR'])
 
-for name in ['VisDrone2019-DET-train', 'VisDrone2019-DET-val', 'VisDrone2019-DET-test-dev']:
-    url = f'{base_url}/{name}.zip'
-    print(f'  下载 {name}.zip ...')
-    download([url], dir=visdrone_dir, curl=True, threads=4)
-    print(f'  ✓ {name} 下载完成')
+FILES = {
+    'VisDrone2019-VID-train.zip':      ('1NSNapZQHar22OYzQYuXCugA3QlMndzvw', '7.5 GB'),
+    'VisDrone2019-VID-val.zip':        ('1xuG7Z3IhVfGGKMe3Yj6RnrFHqo_d2a1B', '1.5 GB'),
+    'VisDrone2019-VID-test-dev.zip':   ('1-BEq--FcjshTF1UwUabby_LHhYj41os5', '2.1 GB'),
+}
 
-# 整理为 YOLO 标准目录结构
-import shutil
-for src, dst in [
-    ('VisDrone2019-DET-train', 'images/train'),
-    ('VisDrone2019-DET-val',   'images/val'),
-    ('VisDrone2019-DET-test-dev', 'images/test'),
-]:
-    src_dir = visdrone_dir / src
-    if src_dir.exists():
-        dst_img = visdrone_dir / dst
-        dst_img.mkdir(parents=True, exist_ok=True)
-        for f in (src_dir / 'images').iterdir():
-            f.rename(dst_img / f.name)
-        dst_lbl = visdrone_dir / dst.replace('images', 'labels')
-        dst_lbl.mkdir(parents=True, exist_ok=True)
-        lbl_src = src_dir / 'labels'
-        if lbl_src.exists():
-            for f in lbl_src.iterdir():
-                f.rename(dst_lbl / f.name)
-        shutil.rmtree(src_dir)
+import gdown
 
-print('✓ VisDrone 数据集下载完成')
-print(f'  训练: {len(list((visdrone_dir/\"images/train\").glob(\"*\")))} 张')
-print(f'  验证: {len(list((visdrone_dir/\"images/val\").glob(\"*\")))} 张')
-print(f'  测试: {len(list((visdrone_dir/\"images/test\").glob(\"*\")))} 张')
-"
+# ---- Download ----
+failed = []
+for fname, (fid, fsize) in FILES.items():
+    zip_path = visdrone_dir / fname
+    if zip_path.exists() and zip_path.stat().st_size > 10000:
+        print(f'  ✓ {fname} 已存在，跳过下载')
+        continue
+    print(f'  ⬇ 正在下载 {fname} ({fsize}) ...')
+    try:
+        gdown.download(f'https://drive.google.com/uc?id={fid}', str(zip_path), quiet=False)
+    except Exception as e:
+        print(f'  ✗ gdown 异常: {e}')
+    if not zip_path.exists() or zip_path.stat().st_size < 10000:
+        print(f'  ✗ {fname} 下载失败')
+        failed.append(fname)
+        continue
+    size_mb = zip_path.stat().st_size / 1024 / 1024
+    print(f'  ✓ {fname} 下载完成 ({size_mb:.0f} MB)')
+    print()
+
+if failed:
+    print()
+    print('='*56)
+    print('  以下文件下载失败:')
+    for f in failed:
+        print(f'    - {f}')
+    print()
+    print('  可手动下载后放到以下目录，再重新运行 bash setup.sh:')
+    print(f'    {visdrone_dir}/')
+    print()
+    print('  百度网盘下载链接:')
+    print('    train:     https://pan.baidu.com/s/1kC3NTK6MPVv3D1CY9gXaCQ')
+    print('    val:       https://pan.baidu.com/s/12-A6Mg1Gg7hyS4WwG27dDw')
+    print('    test-dev:  https://pan.baidu.com/s/1r1P5aJ1zOlQH_58LfYFzQQ')
+    print('='*56)
+    sys.exit(1)
+
+# Extract
+for fname in FILES:
+    zip_path = visdrone_dir / fname
+    if not zip_path.exists():
+        continue
+    extract_dir = visdrone_dir / fname.replace('.zip', '')
+    if extract_dir.exists():
+        print(f'  {fname} 已解压，跳过')
+        continue
+    print(f'  → 解压 {fname} ...')
+    with zipfile.ZipFile(zip_path, 'r') as zf:
+        zf.extractall(visdrone_dir)
+    print(f'  ✓ {fname} 解压完成')
+
+# Convert VID annotations to YOLO format
+# VID annotation format (10 fields):
+#   frame_index, target_id, bbox_left, bbox_top, bbox_width, bbox_height, score, category, truncation, occlusion
+# Categories: 0=ignored, 1=pedestrian, 2=people, 3=bicycle, 4=car, 5=van, 6=truck, 7=tricycle, 8=awning-tricycle, 9=bus, 10=motor, 11=others
+
+def convert_split(split_name, dst_name):
+    split_dir = visdrone_dir / split_name
+    if not split_dir.exists():
+        print(f'  {split_name} 目录不存在，跳过')
+        return
+
+    # Create output dirs
+    dst_img = visdrone_dir / 'images' / dst_name
+    dst_lbl = visdrone_dir / 'labels' / dst_name
+    dst_img.mkdir(parents=True, exist_ok=True)
+    dst_lbl.mkdir(parents=True, exist_ok=True)
+
+    # Find all images recursively
+    img_files = []
+    for ext in ['*.jpg', '*.png', '*.jpeg']:
+        img_files.extend(split_dir.glob(f'**/{ext}'))
+        # Exclude files inside 'labels' or 'annotations' dirs
+        img_files = [f for f in img_files if 'labels' not in str(f.parent) and 'annotations' not in str(f.parent)]
+
+    if not img_files:
+        print(f'  ⚠ {split_name}: 未找到图片文件')
+        return
+
+    converted = 0
+    for img_file in img_files:
+        # Find corresponding annotation
+        ann_file = None
+        # Try same directory
+        for ext in ['.txt']:
+            c = img_file.with_suffix(ext)
+            if c.exists():
+                ann_file = c
+                break
+        # Try annotations/ subdirectory
+        if ann_file is None:
+            ann_candidates = list(split_dir.glob(f'**/annotations/{img_file.stem}.txt'))
+            if ann_candidates:
+                ann_file = ann_candidates[0]
+        # Try relative annotations path
+        if ann_file is None:
+            rel = img_file.relative_to(split_dir)
+            for ann_dir_name in ['annotations', 'labels']:
+                c = split_dir / ann_dir_name / rel.with_suffix('.txt')
+                if c.exists():
+                    ann_file = c
+                    break
+
+        if ann_file is None or not ann_file.exists():
+            continue
+
+        # Read image size
+        try:
+            img_size = Image.open(img_file).size
+        except Exception:
+            continue
+
+        dw, dh = 1.0 / img_size[0], 1.0 / img_size[1]
+
+        # Convert annotations
+        lines = []
+        with open(ann_file, 'r') as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                parts = line.split(',')
+                if len(parts) < 10:
+                    continue
+                # Skip ignored regions (score=0 and category=0)
+                score = int(parts[6])
+                category = int(parts[7])
+                if score == 0 and category == 0:
+                    continue
+                cls = category - 1  # categories: 1-10 → 0-9
+                if cls < 0 or cls >= 10:
+                    continue  # skip 'ignored'(0) and 'others'(11)
+                x1, y1, w, h = map(float, parts[2:6])
+                xc = (x1 + w / 2) * dw
+                yc = (y1 + h / 2) * dh
+                nw = w * dw
+                nh = h * dh
+                lines.append(f'{cls} {xc:.6f} {yc:.6f} {nw:.6f} {nh:.6f}\n')
+
+        if not lines:
+            continue
+
+        # Write YOLO label
+        label_path = dst_lbl / f'{img_file.stem}.txt'
+        with open(label_path, 'w') as f:
+            f.writelines(lines)
+
+        # Copy image to output dir
+        dst = dst_img / img_file.name
+        if not dst.exists():
+            shutil.copy2(img_file, dst)
+
+        converted += 1
+
+    print(f'  {split_name} → {dst_name}: {converted} 张')
+
+# Convert each split
+for split, dst in [('VisDrone2019-VID-train', 'train'),
+                    ('VisDrone2019-VID-val', 'val'),
+                    ('VisDrone2019-VID-test-dev', 'test')]:
+    convert_split(split, dst)
+
+# Clean up extracted dirs and zips
+for d in visdrone_dir.iterdir():
+    if d.is_dir() and d.name.startswith('VisDrone2019-VID-') and d.name != 'images' and d.name != 'labels':
+        shutil.rmtree(d, ignore_errors=True)
+
+# Report
+train_n = len(list((visdrone_dir/'images'/'train').glob('*'))) if (visdrone_dir/'images'/'train').exists() else 0
+val_n   = len(list((visdrone_dir/'images'/'val').glob('*')))   if (visdrone_dir/'images'/'val').exists()   else 0
+test_n  = len(list((visdrone_dir/'images'/'test').glob('*')))  if (visdrone_dir/'images'/'test').exists()  else 0
+print(f'✓ VisDrone-VID 数据集准备完成')
+print(f'  训练: {train_n} 张')
+print(f'  验证: {val_n} 张')
+print(f'  测试: {test_n} 张')
+PYEOF
 
     if [ $? -ne 0 ]; then
         echo -e "${RED}数据集下载失败${NC}"
-        echo "  手动下载: 从 https://github.com/ultralytics/yolov5/releases/tag/v1.0"
-        echo "  下载 3 个 zip，解压到 $VISDRONE_DIR/，目录结构见 USE.md"
+        echo "  手动下载: https://github.com/VisDrone/VisDrone-Dataset"
+        echo "  Google Drive 链接见项目 README"
         exit 1
     fi
 fi
@@ -529,15 +683,21 @@ python -c "import selective_scan_cuda_core; print('OK')" || { echo "FAIL"; ERROR
 echo -n "  timm / einops / pycocotools ... "
 python -c "import timm, einops, pycocotools; print('OK')" || { echo "FAIL"; ERRORS=$((ERRORS+1)); }
 
-echo -n "  VisDrone 数据集 ... "
-python -c "
+echo -n "  VisDrone-VID 数据集 ... "
+if python3 << PYEOF
 from pathlib import Path
 d = Path('$VISDRONE_DIR')
 assert (d/'images'/'train').exists(), 'train missing'
 assert (d/'images'/'val').exists(), 'val missing'
 assert (d/'labels'/'train').exists(), 'labels missing'
 print('OK')
-" || { echo "FAIL"; ERRORS=$((ERRORS+1)); }
+PYEOF
+then
+    :
+else
+    echo "FAIL"
+    ERRORS=$((ERRORS+1))
+fi
 
 if [ $ERRORS -gt 0 ]; then
     echo -e "\n${RED}${ERRORS} 项检查失败，请查看上方错误信息${NC}"
@@ -555,10 +715,10 @@ echo "    source venv/bin/activate"
 echo "    export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True"
 echo "    export LD_LIBRARY_PATH=\$(python -c \"import torch, os; print(os.path.join(os.path.dirname(torch.__file__), 'lib'))\"):\$LD_LIBRARY_PATH"
 echo ""
-echo "  训练命令:"
+echo "  训练命令 (VisDrone-VID):"
 echo "    python mbyolo_train.py --model T --task train --epochs 100"
 echo "    python mbyolo_train.py --model B --task train --epochs 200"
 echo "    python mbyolo_train.py --model L --task train --epochs 300 --batch_size 1"
 echo ""
-echo "  更多用法: cat USE.md"
+echo "  更多用法: cat README.md"
 echo "================================================"

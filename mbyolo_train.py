@@ -44,7 +44,7 @@ def parse_opt():
     parser.add_argument("--model", type=str, default="T", choices=["T", "B", "L"],
                         help="Model size: T (Tiny), B (Base), L (Large)")
     parser.add_argument("--data", type=str,
-                        default=ROOT + "ultralytics/cfg/datasets/VisDrone.yaml",
+                        default=ROOT + "ultralytics/cfg/datasets/VisDrone-VID.yaml",
                         help="Dataset YAML path")
     parser.add_argument("--task", type=str, default="train",
                         choices=["train", "val", "test"],
@@ -71,7 +71,7 @@ def parse_opt():
     parser.add_argument("--no-amp", dest="amp", action="store_false",
                         help="Disable AMP")
     parser.add_argument("--project", type=str,
-                        default=ROOT + "output_dir/VisDrone",
+                        default=ROOT + "output_dir/VisDrone-VID",
                         help="Output project directory")
     parser.add_argument("--name", type=str, default=None,
                         help="Experiment name (auto-generated if not set)")
