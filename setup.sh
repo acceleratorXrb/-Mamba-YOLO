@@ -394,8 +394,16 @@ elif [ "$CUDA_AVAILABLE" = true ]; then
         cd "$PROJECT_DIR"
         echo "  → 验证 selective_scan 导入..."
         IMPORT_LOG="/tmp/selective_scan_import_$$.log"
+        # PyTorch 的 .so 库路径需要加到 LD_LIBRARY_PATH
+        TORCH_LIB=$(python -c "import torch; print(torch.utils.cmake_prefix_path+'/../../../lib')" 2>/dev/null || echo "")
+        if [ -z "$TORCH_LIB" ] || [ ! -d "$TORCH_LIB" ]; then
+            TORCH_LIB=$(python -c "import torch, os; print(os.path.join(os.path.dirname(torch.__file__), 'lib'))" 2>/dev/null)
+        fi
+        export LD_LIBRARY_PATH="${TORCH_LIB}:${LD_LIBRARY_PATH}"
         if python -c "import selective_scan_cuda_core" >"$IMPORT_LOG" 2>&1; then
             rm -f "$BUILD_LOG" "$IMPORT_LOG"
+            # 持久化 LD_LIBRARY_PATH 供后续步骤使用
+            export LD_LIBRARY_PATH="${TORCH_LIB}:${LD_LIBRARY_PATH}"
             echo "  ✓ selective_scan 编译安装成功"
         else
             IMPORT_RC=$?
@@ -545,6 +553,7 @@ echo ""
 echo "  每次使用前激活环境:"
 echo "    source venv/bin/activate"
 echo "    export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True"
+echo "    export LD_LIBRARY_PATH=\$(python -c \"import torch, os; print(os.path.join(os.path.dirname(torch.__file__), 'lib'))\"):\$LD_LIBRARY_PATH"
 echo ""
 echo "  训练命令:"
 echo "    python mbyolo_train.py --model T --task train --epochs 100"
