@@ -155,8 +155,8 @@ else
             PYTHON_BIN="$CONDA_BIN run -n base python"
             VER="$CONDA_PY"
         else
-            echo "  → conda 安装 Python 3.12..."
-            $CONDA_BIN install -y -n base python=3.12 -q 2>&1 | tail -3
+            echo "  → conda 安装 Python 3.12 (可能需要几分钟)..."
+            $CONDA_BIN install -y -n base python=3.12
             PYTHON_BIN="$CONDA_BIN run -n base python"
             VER="3.12"
         fi
@@ -166,9 +166,11 @@ else
         MINICONDA_SH="/tmp/miniconda_install.sh"
         curl -fsSL "$MINICONDA_URL" -o "$MINICONDA_SH" 2>&1 || wget -q "$MINICONDA_URL" -O "$MINICONDA_SH" 2>&1
         if [ -s "$MINICONDA_SH" ]; then
-            bash "$MINICONDA_SH" -b -p "$HOME/miniconda3" 2>&1 | tail -3
+            echo "  → 安装 Miniconda..."
+            bash "$MINICONDA_SH" -b -p "$HOME/miniconda3"
             CONDA_BIN="$HOME/miniconda3/bin/conda"
-            $CONDA_BIN install -y -n base python=3.12 -q 2>&1 | tail -3
+            echo "  → conda 安装 Python 3.12 (可能需要几分钟)..."
+            $CONDA_BIN install -y -n base python=3.12
             PYTHON_BIN="$CONDA_BIN run -n base python"
             VER="3.12"
             rm -f "$MINICONDA_SH"
