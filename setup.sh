@@ -518,6 +518,8 @@ def download_http(url, output_path, label):
             total = int(resp.headers.get('content-length', 0))
             tmp = output_path.with_suffix('.part')
             downloaded = 0
+            import time
+            t0 = time.time()
             with open(tmp, 'wb') as f:
                 for chunk in resp.iter_content(chunk_size=8*1024*1024):
                     if chunk:
@@ -525,9 +527,14 @@ def download_http(url, output_path, label):
                         downloaded += len(chunk)
                         if total:
                             pct = downloaded / total * 100
+                            width = 30
+                            filled = int(width * pct / 100)
+                            bar = '█' * filled + '░' * (width - filled)
                             mb = downloaded / 1024 / 1024
                             total_mb = total / 1024 / 1024
-                            print(f'\r    {pct:.0f}%  {mb:.0f}/{total_mb:.0f} MB', end='', flush=True)
+                            elapsed = time.time() - t0
+                            speed = (downloaded / 1024 / 1024) / elapsed if elapsed > 0 else 0
+                            print(f'\r  {bar}  {pct:.1f}%  {mb:.0f}/{total_mb:.0f} MB  {speed:.1f} MB/s', end='', flush=True)
             print()
             tmp.rename(output_path)
             mb = output_path.stat().st_size / 1024 / 1024
