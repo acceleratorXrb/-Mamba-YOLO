@@ -385,18 +385,28 @@ elif [ "$CUDA_AVAILABLE" = true ]; then
     fi
 
     cd "$SELECTIVE_SCAN_DIR"
+    # 清理之前的编译残留
+    rm -rf build/ dist/ *.egg-info 2>/dev/null || true
     pip install ninja wheel
     # 保存完整编译日志并实时显示进度
     BUILD_LOG="/tmp/selective_scan_build_$$.log"
     if pip install . --no-build-isolation 2>&1 | tee "$BUILD_LOG"; then
         cd "$PROJECT_DIR"
-        IMPORT_ERR=$(python -c "import selective_scan_cuda_core" 2>&1)
-        if [ $? -eq 0 ]; then
+        echo -n "  → 验证 selective_scan 导入..."
+        IMPORT_ERR=$(timeout 30 python -c "import selective_scan_cuda_core" 2>&1)
+        IMPORT_RC=$?
+        if [ $IMPORT_RC -eq 0 ]; then
             rm -f "$BUILD_LOG"
+            echo " OK"
             echo "  ✓ selective_scan 编译安装成功"
         else
-            echo -e "${RED}编译完成但 import 失败${NC}"
-            echo "  错误: $IMPORT_ERR"
+            echo " FAIL"
+            if [ $IMPORT_RC -eq 124 ]; then
+                echo -e "  ${RED}导入超时 (30秒), 可能是 CUDA 库加载卡死${NC}"
+            else
+                echo -e "  ${RED}编译完成但 import 失败 (exit=$IMPORT_RC)${NC}"
+                echo "  错误: $IMPORT_ERR"
+            fi
             echo "  完整编译日志: $BUILD_LOG"
             tail -20 "$BUILD_LOG"
             exit 1
