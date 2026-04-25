@@ -312,16 +312,16 @@ else
 
     case "$CUDA_MAJOR" in
         12)
-            echo "  → 安装 PyTorch (CUDA 12.1)..."
-            pip install torch==2.5.1 torchvision==0.20.1 --index-url https://download.pytorch.org/whl/cu121 -q
+            echo "  → 安装 PyTorch (CUDA 12.1) 约 2GB, 可能需要几分钟..."
+            pip install torch==2.5.1 torchvision==0.20.1 --index-url https://download.pytorch.org/whl/cu121
             ;;
         11)
-            echo "  → 安装 PyTorch (CUDA 11.8)..."
-            pip install torch==2.5.1 torchvision==0.20.1 --index-url https://download.pytorch.org/whl/cu118 -q
+            echo "  → 安装 PyTorch (CUDA 11.8) 约 2GB, 可能需要几分钟..."
+            pip install torch==2.5.1 torchvision==0.20.1 --index-url https://download.pytorch.org/whl/cu118
             ;;
         *)
             echo -e "  ${YELLOW}无法确定 CUDA 版本，安装 CPU 版 PyTorch${NC}"
-            pip install torch==2.5.1 torchvision==0.20.1 -q
+            pip install torch==2.5.1 torchvision==0.20.1
             ;;
     esac
     echo "  ✓ PyTorch 安装完成: $(python -c 'import torch; print(torch.__version__)')"
@@ -340,13 +340,13 @@ fi
 echo ""
 echo "[5/8] 安装项目依赖..."
 
-pip install --upgrade pip -q 2>&1 | tail -1
+pip install --upgrade pip
 
 echo "  → 安装 ultralytics 基础依赖..."
-pip install -e "$PROJECT_DIR" -q 2>&1 | tail -1
+pip install -e "$PROJECT_DIR"
 
 echo "  → 安装额外依赖 (timm, einops, pycocotools)..."
-pip install timm einops pycocotools -q 2>&1 | tail -1
+pip install timm einops pycocotools
 echo "  ✓ 所有依赖安装完成"
 
 # 6. 编译 selective_scan CUDA 扩展
@@ -360,7 +360,7 @@ if python -c "import selective_scan_cuda_core" 2>/dev/null; then
 elif [ "$CUDA_AVAILABLE" = true ]; then
     echo "  → 编译中 (须要 1-3 分钟)..."
     cd "$SELECTIVE_SCAN_DIR"
-    pip install ninja -q 2>&1 | tail -1
+    pip install ninja
     if pip install . 2>&1 | tail -5; then
         cd "$PROJECT_DIR"
         if python -c "import selective_scan_cuda_core" 2>/dev/null; then
