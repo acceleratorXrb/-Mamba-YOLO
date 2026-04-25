@@ -1,5 +1,4 @@
 
-nc: 80  # number of classes
 scales:   # [depth, width, max_channels]
   B: [0.33, 0.50, 1024]  # Mamba-YOLOv8-B summary:   21.8M parameters,  49.7 GFLOPs
 

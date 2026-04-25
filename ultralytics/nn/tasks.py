@@ -284,8 +284,9 @@ class DetectionModel(BaseModel):
 
         # Define model
         ch = self.yaml["ch"] = self.yaml.get("ch", ch)  # input channels
-        if nc and nc != self.yaml["nc"]:
-            LOGGER.info(f"Overriding model.yaml nc={self.yaml['nc']} with nc={nc}")
+        if nc:
+            if self.yaml.get("nc") and nc != self.yaml["nc"]:
+                LOGGER.info(f"Overriding model.yaml nc={self.yaml['nc']} with nc={nc}")
             self.yaml["nc"] = nc  # override YAML value
         self.model, self.save = parse_model(deepcopy(self.yaml), ch=ch, verbose=verbose)  # model, savelist
         self.names = {i: f"{i}" for i in range(self.yaml["nc"])}  # default names dict
@@ -415,10 +416,11 @@ class ClassificationModel(BaseModel):
 
         # Define model
         ch = self.yaml["ch"] = self.yaml.get("ch", ch)  # input channels
-        if nc and nc != self.yaml["nc"]:
-            LOGGER.info(f"Overriding model.yaml nc={self.yaml['nc']} with nc={nc}")
+        if nc:
+            if self.yaml.get("nc") and nc != self.yaml["nc"]:
+                LOGGER.info(f"Overriding model.yaml nc={self.yaml['nc']} with nc={nc}")
             self.yaml["nc"] = nc  # override YAML value
-        elif not nc and not self.yaml.get("nc", None):
+        elif not self.yaml.get("nc"):
             raise ValueError("nc not specified. Must specify nc in model.yaml or function arguments.")
         self.model, self.save = parse_model(deepcopy(self.yaml), ch=ch, verbose=verbose)  # model, savelist
         self.stride = torch.Tensor([1])  # no stride constraints
