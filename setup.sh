@@ -513,7 +513,7 @@ def download_http(url, output_path, label):
         return True
     print(f'  ⬇ {label}: {output_path.name} ...')
     try:
-        with requests.get(url, stream=True, timeout=120) as resp:
+        with requests.get(url, stream=True, timeout=(30, 120)) as resp:
             resp.raise_for_status()
             total = int(resp.headers.get('content-length', 0))
             tmp = output_path.with_suffix('.part')
