@@ -371,6 +371,12 @@ echo "[6/8] 编译 selective_scan CUDA 扩展..."
 
 SELECTIVE_SCAN_DIR="$PROJECT_DIR/selective_scan"
 
+# 设置 LD_LIBRARY_PATH 以便 import 检查（第 8 步也需要）
+TORCH_LIB_PATH=$(python -c "import torch, os; print(os.path.join(os.path.dirname(torch.__file__), 'lib'))" 2>/dev/null || echo "")
+if [ -n "$TORCH_LIB_PATH" ]; then
+    export LD_LIBRARY_PATH="${TORCH_LIB_PATH}:${LD_LIBRARY_PATH}"
+fi
+
 if python -c "import selective_scan_cuda_core" 2>/dev/null; then
     echo "  ✓ selective_scan 已安装，跳过编译"
 elif [ "$CUDA_AVAILABLE" = true ]; then
