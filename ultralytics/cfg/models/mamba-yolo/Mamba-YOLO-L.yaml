@@ -1,4 +1,6 @@
 
+nc: 10
+
 scales:   # [depth, width, max_channels]
   L: [0.67, 0.75, 768]   # Mamba-YOLOv8-T summary:  57.6M parameters,   156.2GFLOPs
 
