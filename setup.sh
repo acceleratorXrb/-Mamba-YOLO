@@ -464,7 +464,7 @@ if [ -d "$VISDRONE_DIR/images/train" ] && [ -d "$VISDRONE_DIR/images/val" ]; the
     echo "  ✓ 数据集已存在: 训练${TRAIN_COUNT}张, 验证${VAL_COUNT}张"
 else
     echo "  → 下载 VisDrone-VID 数据集 (约 9GB，需要较长时间)..."
-    echo "  主下载源: Google Drive (回退 hf-mirror 国内镜像)"
+    echo "  主下载源: hf-mirror (HuggingFace 国内镜像)"
     echo ""
 
     mkdir -p "$VISDRONE_DIR"
@@ -566,11 +566,12 @@ for fname, info in FILES.items():
         continue
 
     success = False
-    # 1) 优先 Google Drive
-    success = download_gdrive(info['gd_id'], zip_path)
-    # 2) 回退 hf-mirror
-    if not success and info['hf']:
+    # 1) 优先 hf-mirror
+    if info['hf']:
         success = download_http(info['hf'], zip_path, 'hf-mirror')
+    # 2) 回退 Google Drive
+    if not success:
+        success = download_gdrive(info['gd_id'], zip_path)
 
     if not success:
         failed.append(fname)
