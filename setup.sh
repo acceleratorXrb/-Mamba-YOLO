@@ -5,7 +5,7 @@
 # 自动检查并安装所有缺失的依赖
 # ============================================================
 
-set -e
+set -eo pipefail
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -45,6 +45,28 @@ else
     SUDO="sudo"
 fi
 
+detect_os
+
+# 主动刷新 apt 包索引（新容器/新系统可能缓存为空）
+if [ "$OS" = "ubuntu" ] || [ "$OS" = "debian" ]; then
+    echo "  → 更新 apt 包索引..."
+    APT_OK=false
+    for attempt in 1 2 3; do
+        if $SUDO apt-get update -qq 2>&1; then
+            echo "  ✓ apt 包索引已更新"
+            APT_OK=true
+            break
+        else
+            echo "  尝试 $attempt/3 失败，等待 5 秒后重试..."
+            sleep 5
+        fi
+    done
+    if [ "$APT_OK" = false ]; then
+        echo -e "${RED}apt 包索引更新失败 (重试3次后仍失败)，请检查网络${NC}"
+        exit 1
+    fi
+fi
+
 install_pkg() {
     local pkg=$1
     if dpkg -s "$pkg" &>/dev/null 2>&1; then
@@ -53,21 +75,29 @@ install_pkg() {
     fi
     echo "    → 安装 $pkg..."
     if [ "$OS" = "ubuntu" ] || [ "$OS" = "debian" ]; then
-        $SUDO apt-get install -y "$pkg" -qq 2>&1 | tail -1 || {
-            # 缓存过期则更新后重试
-            echo "    更新 apt 缓存后重试..."
+        local _log="/tmp/apt_install_$$.log"
+        if $SUDO apt-get install -y "$pkg" -qq >"$_log" 2>&1; then
+            rm -f "$_log"
+        else
+            echo "    首次安装失败，更新缓存后重试..."
+            cat "$_log" | tail -3
+            rm -f "$_log"
             $SUDO apt-get update -qq 2>&1 | tail -1
-            $SUDO apt-get install -y "$pkg" -qq 2>&1 | tail -1
-        }
+            $SUDO apt-get install -y "$pkg" -qq || {
+                echo -e "${RED}无法安装 $pkg，请检查网络或手动安装${NC}"
+                exit 1
+            }
+        fi
     elif [ "$OS" = "centos" ] || [ "$OS" = "rhel" ]; then
-        $SUDO yum install -y "$pkg" -q 2>&1 | tail -1
+        $SUDO yum install -y "$pkg" -q || {
+            echo -e "${RED}无法安装 $pkg${NC}"
+            exit 1
+        }
     else
         echo -e "${RED}不支持的 OS: $OS${NC}"
         exit 1
     fi
 }
-
-detect_os
 
 # 基础编译工具
 for pkg in build-essential git curl wget unzip; do
