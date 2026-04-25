@@ -295,22 +295,38 @@ fi
 source "$VENV_DIR/bin/activate"
 echo "  Python: $(python --version)"
 
-# 4. 安装 PyTorch（自动匹配 CUDA 版本）
+# 4. 安装 PyTorch（自动匹配系统 CUDA 版本）
 echo ""
 echo "[4/8] 安装 PyTorch..."
 
+# 先检测系统 nvcc 的 CUDA 大版本（用于一致性校验）
+SYS_CUDA_MAJOR=""
+if [ "$CUDA_AVAILABLE" = true ] && command -v nvcc &>/dev/null; then
+    SYS_CUDA_FULL=$(nvcc --version 2>/dev/null | grep -oP 'release \K\d+\.\d+' || echo "")
+    SYS_CUDA_MAJOR=$(echo "$SYS_CUDA_FULL" | cut -d. -f1)
+    echo "  系统 CUDA: $SYS_CUDA_FULL"
+fi
+
+NEED_TORCH_INSTALL=false
 if python -c "import torch; print(torch.__version__)" &>/dev/null 2>&1; then
     TORCH_VER=$(python -c "import torch; print(torch.__version__)")
-    echo "  PyTorch 已安装: $TORCH_VER"
-else
-    # 检测 CUDA 版本来选择 PyTorch 版本
-    CUDA_MAJOR=""
-    if [ "$CUDA_AVAILABLE" = true ] && command -v nvcc &>/dev/null; then
-        CUDA_FULL=$(nvcc --version 2>/dev/null | grep -oP 'release \K\d+\.\d+' || echo "")
-        CUDA_MAJOR=$(echo "$CUDA_FULL" | cut -d. -f1)
-    fi
+    TORCH_CUDA=$(python -c "import torch; print(torch.version.cuda)" 2>/dev/null || echo "cpu")
+    TORCH_CUDA_MAJOR=$(echo "$TORCH_CUDA" | cut -d. -f1)
+    echo "  PyTorch 已安装: $TORCH_VER (CUDA $TORCH_CUDA)"
 
-    case "$CUDA_MAJOR" in
+    # 检查 PyTorch CUDA 版本是否与系统 nvcc 匹配
+    if [ -n "$SYS_CUDA_MAJOR" ] && [ "$TORCH_CUDA_MAJOR" != "$SYS_CUDA_MAJOR" ]; then
+        echo -e "  ${YELLOW}CUDA 版本不匹配: PyTorch=$TORCH_CUDA_MAJOR, nvcc=$SYS_CUDA_MAJOR${NC}"
+        echo "  → 卸载旧版 PyTorch，重新安装匹配版本..."
+        pip uninstall -y torch torchvision 2>/dev/null || true
+        NEED_TORCH_INSTALL=true
+    fi
+else
+    NEED_TORCH_INSTALL=true
+fi
+
+if [ "$NEED_TORCH_INSTALL" = true ]; then
+    case "$SYS_CUDA_MAJOR" in
         12)
             echo "  → 安装 PyTorch (CUDA 12.1) 约 2GB, 可能需要几分钟..."
             pip install torch==2.5.1 torchvision==0.20.1 --index-url https://download.pytorch.org/whl/cu121
@@ -320,7 +336,7 @@ else
             pip install torch==2.5.1 torchvision==0.20.1 --index-url https://download.pytorch.org/whl/cu118
             ;;
         *)
-            echo -e "  ${YELLOW}无法确定 CUDA 版本，安装 CPU 版 PyTorch${NC}"
+            echo -e "  ${YELLOW}无法确定系统 CUDA 版本，安装 CPU 版 PyTorch${NC}"
             pip install torch==2.5.1 torchvision==0.20.1
             ;;
     esac
@@ -374,11 +390,13 @@ elif [ "$CUDA_AVAILABLE" = true ]; then
     BUILD_LOG="/tmp/selective_scan_build_$$.log"
     if pip install . --no-build-isolation 2>&1 | tee "$BUILD_LOG"; then
         cd "$PROJECT_DIR"
-        if python -c "import selective_scan_cuda_core" 2>/dev/null; then
+        IMPORT_ERR=$(python -c "import selective_scan_cuda_core" 2>&1)
+        if [ $? -eq 0 ]; then
             rm -f "$BUILD_LOG"
             echo "  ✓ selective_scan 编译安装成功"
         else
             echo -e "${RED}编译完成但 import 失败${NC}"
+            echo "  错误: $IMPORT_ERR"
             echo "  完整编译日志: $BUILD_LOG"
             tail -20 "$BUILD_LOG"
             exit 1
