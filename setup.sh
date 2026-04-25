@@ -370,9 +370,9 @@ elif [ "$CUDA_AVAILABLE" = true ]; then
 
     cd "$SELECTIVE_SCAN_DIR"
     pip install ninja wheel
-    # 保存完整编译日志，方便排查问题
+    # 保存完整编译日志并实时显示进度
     BUILD_LOG="/tmp/selective_scan_build_$$.log"
-    if pip install . --no-build-isolation >"$BUILD_LOG" 2>&1; then
+    if pip install . --no-build-isolation 2>&1 | tee "$BUILD_LOG"; then
         cd "$PROJECT_DIR"
         if python -c "import selective_scan_cuda_core" 2>/dev/null; then
             rm -f "$BUILD_LOG"
