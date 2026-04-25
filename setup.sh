@@ -457,47 +457,110 @@ if [ -d "$VISDRONE_DIR/images/train" ] && [ -d "$VISDRONE_DIR/images/val" ]; the
     VAL_COUNT=$(find "$VISDRONE_DIR/images/val" -type f \( -name "*.jpg" -o -name "*.png" \) 2>/dev/null | wc -l)
     echo "  ✓ 数据集已存在: 训练${TRAIN_COUNT}张, 验证${VAL_COUNT}张"
 else
-    echo "  → 下载 VisDrone-VID 数据集 (约 11GB，需要较长时间)..."
-    echo "  下载源: Google Drive"
+    echo "  → 下载 VisDrone-VID 数据集 (约 9GB，需要较长时间)..."
+    echo "  主下载源: hf-mirror (HuggingFace 国内镜像)"
     echo ""
 
     mkdir -p "$VISDRONE_DIR"
 
-    pip install gdown -q
+    # 确保 requests 已安装
+    pip install requests -q
 
     python3 << 'PYEOF'
-import os, sys, zipfile, shutil, traceback
+import os, sys, zipfile, shutil
 from pathlib import Path
 from PIL import Image
 
 visdrone_dir = Path(os.environ['VISDRONE_DIR'])
 
+# hf-mirror (国内 HuggingFace 镜像) 优先
+HF_MIRROR = 'https://hf-mirror.com/datasets/AndriiDemk/visDrone_copy/resolve/main'
+
+# Google Drive 备用 (使用 confirm=t 绕过确认页)
+GDRIVE_BASE = 'https://drive.usercontent.google.com/download'
+
 FILES = {
-    'VisDrone2019-VID-train.zip':      ('1NSNapZQHar22OYzQYuXCugA3QlMndzvw', '7.5 GB'),
-    'VisDrone2019-VID-val.zip':        ('1xuG7Z3IhVfGGKMe3Yj6RnrFHqo_d2a1B', '1.5 GB'),
-    'VisDrone2019-VID-test-dev.zip':   ('1-BEq--FcjshTF1UwUabby_LHhYj41os5', '2.1 GB'),
+    'VisDrone2019-VID-train.zip': {
+        'hf': f'{HF_MIRROR}/VisDrone2019-VID-train.zip',
+        'gd_id': '1NSNapZQHar22OYzQYuXCugA3QlMndzvw',
+        'size_gb': 7.5,
+    },
+    'VisDrone2019-VID-val.zip': {
+        'hf': f'{HF_MIRROR}/VisDrone2019-VID-val.zip',
+        'gd_id': '1xuG7Z3IhVfGGKMe3Yj6RnrFHqo_d2a1B',
+        'size_gb': 1.5,
+    },
+    'VisDrone2019-VID-test-dev.zip': {
+        'hf': None,  # hf-mirror 暂无 test-dev
+        'gd_id': '1-BEq--FcjshTF1UwUabby_LHhYj41os5',
+        'size_gb': 2.1,
+    },
 }
 
-import gdown
+import requests
+
+def download_http(url, output_path, label):
+    """下载 HTTP 文件，显示进度"""
+    if output_path.exists() and output_path.stat().st_size > 10000:
+        print(f'  ✓ {output_path.name} 已存在，跳过')
+        return True
+    print(f'  ⬇ {label}: {output_path.name} ...')
+    try:
+        with requests.get(url, stream=True, timeout=120) as resp:
+            resp.raise_for_status()
+            total = int(resp.headers.get('content-length', 0))
+            tmp = output_path.with_suffix('.part')
+            downloaded = 0
+            with open(tmp, 'wb') as f:
+                for chunk in resp.iter_content(chunk_size=8*1024*1024):
+                    if chunk:
+                        f.write(chunk)
+                        downloaded += len(chunk)
+                        if total:
+                            pct = downloaded / total * 100
+                            mb = downloaded / 1024 / 1024
+                            total_mb = total / 1024 / 1024
+                            print(f'\r    {pct:.0f}%  {mb:.0f}/{total_mb:.0f} MB', end='', flush=True)
+            print()
+            tmp.rename(output_path)
+            mb = output_path.stat().st_size / 1024 / 1024
+            print(f'  ✓ {output_path.name} 完成 ({mb:.0f} MB)')
+            return True
+    except Exception as e:
+        print(f'\n  ✗ {output_path.name} HTTP 下载失败: {e}')
+        if tmp.exists():
+            tmp.unlink()
+        return False
+
+def download_gdrive(file_id, output_path):
+    """Google Drive 备用下载 (confirm=t 绕过确认)"""
+    if output_path.exists() and output_path.stat().st_size > 10000:
+        print(f'  ✓ {output_path.name} 已存在，跳过')
+        return True
+    print(f'  ⬇ Google Drive: {output_path.name} ...')
+    url = f'{GDRIVE_BASE}?id={file_id}&export=download&confirm=t'
+    return download_http(url, output_path, 'Google Drive')
 
 # ---- Download ----
 failed = []
-for fname, (fid, fsize) in FILES.items():
+for fname, info in FILES.items():
     zip_path = visdrone_dir / fname
+    size_str = f'{info["size_gb"]:.1f} GB'
+
     if zip_path.exists() and zip_path.stat().st_size > 10000:
-        print(f'  ✓ {fname} 已存在，跳过下载')
+        print(f'  ✓ {fname} ({size_str}) 已存在，跳过')
         continue
-    print(f'  ⬇ 正在下载 {fname} ({fsize}) ...')
-    try:
-        gdown.download(f'https://drive.google.com/uc?id={fid}', str(zip_path), quiet=False)
-    except Exception as e:
-        print(f'  ✗ gdown 异常: {e}')
-    if not zip_path.exists() or zip_path.stat().st_size < 10000:
-        print(f'  ✗ {fname} 下载失败')
+
+    success = False
+    # 1) 优先 hf-mirror
+    if info['hf']:
+        success = download_http(info['hf'], zip_path, 'hf-mirror')
+    # 2) 回退 Google Drive
+    if not success:
+        success = download_gdrive(info['gd_id'], zip_path)
+
+    if not success:
         failed.append(fname)
-        continue
-    size_mb = zip_path.stat().st_size / 1024 / 1024
-    print(f'  ✓ {fname} 下载完成 ({size_mb:.0f} MB)')
     print()
 
 if failed:
@@ -510,7 +573,7 @@ if failed:
     print('  可手动下载后放到以下目录，再重新运行 bash setup.sh:')
     print(f'    {visdrone_dir}/')
     print()
-    print('  百度网盘下载链接:')
+    print('  百度网盘备用链接:')
     print('    train:     https://pan.baidu.com/s/1kC3NTK6MPVv3D1CY9gXaCQ')
     print('    val:       https://pan.baidu.com/s/12-A6Mg1Gg7hyS4WwG27dDw')
     print('    test-dev:  https://pan.baidu.com/s/1r1P5aJ1zOlQH_58LfYFzQQ')
