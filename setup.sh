@@ -595,109 +595,85 @@ for fname in FILES:
     print(f'  ✓ {fname} 解压完成')
 
 # Convert VID annotations to YOLO format
+# VID dataset structure:
+#   VisDrone2019-VID-train/annotations/<seq>.txt    (per-sequence, all frames)
+#   VisDrone2019-VID-train/sequences/<seq>/<id>.jpg (per-frame images)
 # VID annotation format (10 fields):
 #   frame_index, target_id, bbox_left, bbox_top, bbox_width, bbox_height, score, category, truncation, occlusion
-# Categories: 0=ignored, 1=pedestrian, 2=people, 3=bicycle, 4=car, 5=van, 6=truck, 7=tricycle, 8=awning-tricycle, 9=bus, 10=motor, 11=others
 
 def convert_split(split_name, dst_name):
     split_dir = visdrone_dir / split_name
-    if not split_dir.exists():
-        print(f'  {split_name} 目录不存在，跳过')
+    ann_dir = split_dir / 'annotations'
+    seq_dir = split_dir / 'sequences'
+    if not ann_dir.is_dir() or not seq_dir.is_dir():
+        print(f'  ⚠ {split_name}: annotations/ 或 sequences/ 缺失，跳过')
         return
 
-    # Create output dirs
     dst_img = visdrone_dir / 'images' / dst_name
     dst_lbl = visdrone_dir / 'labels' / dst_name
     dst_img.mkdir(parents=True, exist_ok=True)
     dst_lbl.mkdir(parents=True, exist_ok=True)
 
-    # Find all images recursively
-    img_files = []
-    for ext in ['*.jpg', '*.png', '*.jpeg']:
-        img_files.extend(split_dir.glob(f'**/{ext}'))
-        # Exclude files inside 'labels' or 'annotations' dirs
-        img_files = [f for f in img_files if 'labels' not in str(f.parent) and 'annotations' not in str(f.parent)]
-
-    if not img_files:
-        print(f'  ⚠ {split_name}: 未找到图片文件')
-        return
-
-    converted = 0
-    for img_file in img_files:
-        # Find corresponding annotation
-        ann_file = None
-        # Try same directory
-        for ext in ['.txt']:
-            c = img_file.with_suffix(ext)
-            if c.exists():
-                ann_file = c
-                break
-        # Try annotations/ subdirectory
-        if ann_file is None:
-            ann_candidates = list(split_dir.glob(f'**/annotations/{img_file.stem}.txt'))
-            if ann_candidates:
-                ann_file = ann_candidates[0]
-        # Try relative annotations path
-        if ann_file is None:
-            rel = img_file.relative_to(split_dir)
-            for ann_dir_name in ['annotations', 'labels']:
-                c = split_dir / ann_dir_name / rel.with_suffix('.txt')
-                if c.exists():
-                    ann_file = c
-                    break
-
-        if ann_file is None or not ann_file.exists():
+    total_imgs, total_objs = 0, 0
+    for ann_file in sorted(ann_dir.glob('*.txt')):
+        seq_name = ann_file.stem
+        seq_path = seq_dir / seq_name
+        if not seq_path.is_dir():
             continue
 
-        # Read image size
-        try:
-            img_size = Image.open(img_file).size
-        except Exception:
-            continue
+        # Parse all annotations for this sequence, grouped by frame
+        frame_boxes = {}
+        for line in ann_file.read_text().splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            parts = [p.strip() for p in line.split(',')]
+            if len(parts) < 10:
+                continue
+            frame_id = int(parts[0])
+            left, top, bw, bh = map(float, parts[2:6])
+            score = int(float(parts[6]))
+            category = int(float(parts[7]))
+            if score != 1 or category < 1 or category > 10:
+                continue
+            if bw <= 0 or bh <= 0:
+                continue
+            frame_boxes.setdefault(frame_id, []).append((category - 1, left, top, bw, bh))
 
-        dw, dh = 1.0 / img_size[0], 1.0 / img_size[1]
+        # Convert each frame image
+        for img_file in sorted(seq_path.glob('*.jpg')):
+            try:
+                frame_id = int(img_file.stem)
+            except ValueError:
+                continue
 
-        # Convert annotations
-        lines = []
-        with open(ann_file, 'r') as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                parts = line.split(',')
-                if len(parts) < 10:
-                    continue
-                # Skip ignored regions (score=0 and category=0)
-                score = int(parts[6])
-                category = int(parts[7])
-                if score == 0 and category == 0:
-                    continue
-                cls = category - 1  # categories: 1-10 → 0-9
-                if cls < 0 or cls >= 10:
-                    continue  # skip 'ignored'(0) and 'others'(11)
-                x1, y1, w, h = map(float, parts[2:6])
-                xc = (x1 + w / 2) * dw
-                yc = (y1 + h / 2) * dh
-                nw = w * dw
-                nh = h * dh
-                lines.append(f'{cls} {xc:.6f} {yc:.6f} {nw:.6f} {nh:.6f}\n')
+            canonical = f'{seq_name}_img{frame_id:07d}'
+            dst_ip = dst_img / f'{canonical}.jpg'
 
-        if not lines:
-            continue
+            # Copy image
+            if not dst_ip.exists():
+                shutil.copy2(img_file, dst_ip)
 
-        # Write YOLO label
-        label_path = dst_lbl / f'{img_file.stem}.txt'
-        with open(label_path, 'w') as f:
-            f.writelines(lines)
+            # Read image size and convert boxes
+            try:
+                with Image.open(img_file) as im:
+                    iw, ih = im.size
+            except Exception:
+                continue
 
-        # Copy image to output dir
-        dst = dst_img / img_file.name
-        if not dst.exists():
-            shutil.copy2(img_file, dst)
+            lines = []
+            for cls, x1, y1, bw, bh in frame_boxes.get(frame_id, []):
+                xc = max(0.0, min(1.0, (x1 + (x1 + bw)) / 2.0 / iw))
+                yc = max(0.0, min(1.0, (y1 + (y1 + bh)) / 2.0 / ih))
+                nw = max(0.0, min(1.0, bw / iw))
+                nh = max(0.0, min(1.0, bh / ih))
+                lines.append(f'{cls} {xc:.6f} {yc:.6f} {nw:.6f} {nh:.6f}')
 
-        converted += 1
+            (dst_lbl / f'{canonical}.txt').write_text('\n'.join(lines) + ('\n' if lines else ''))
+            total_imgs += 1
+            total_objs += len(lines)
 
-    print(f'  {split_name} → {dst_name}: {converted} 张')
+    print(f'  {split_name} → {dst_name}: {total_imgs} images, {total_objs} boxes')
 
 # Convert each split
 for split, dst in [('VisDrone2019-VID-train', 'train'),
@@ -707,17 +683,16 @@ for split, dst in [('VisDrone2019-VID-train', 'train'),
 
 # Clean up extracted dirs and zips
 for d in visdrone_dir.iterdir():
-    if d.is_dir() and d.name.startswith('VisDrone2019-VID-') and d.name != 'images' and d.name != 'labels':
+    if d.is_dir() and d.name.startswith('VisDrone2019-VID-') and d.name not in ('images', 'labels'):
         shutil.rmtree(d, ignore_errors=True)
 
 # Report
-train_n = len(list((visdrone_dir/'images'/'train').glob('*'))) if (visdrone_dir/'images'/'train').exists() else 0
-val_n   = len(list((visdrone_dir/'images'/'val').glob('*')))   if (visdrone_dir/'images'/'val').exists()   else 0
-test_n  = len(list((visdrone_dir/'images'/'test').glob('*')))  if (visdrone_dir/'images'/'test').exists()  else 0
-print(f'✓ VisDrone-VID 数据集准备完成')
-print(f'  训练: {train_n} 张')
-print(f'  验证: {val_n} 张')
-print(f'  测试: {test_n} 张')
+for split in ['train', 'val', 'test']:
+    img_d = visdrone_dir / 'images' / split
+    lbl_d = visdrone_dir / 'labels' / split
+    n = len(list(img_d.glob('*'))) if img_d.exists() else 0
+    print(f'  {split}: {n} images')
+print('✓ VisDrone-VID 数据集准备完成')
 PYEOF
 
     if [ $? -ne 0 ]; then
