@@ -361,7 +361,7 @@ elif [ "$CUDA_AVAILABLE" = true ]; then
     echo "  → 编译中 (须要 1-3 分钟)..."
     cd "$SELECTIVE_SCAN_DIR"
     pip install ninja
-    if pip install . 2>&1 | tail -5; then
+    if pip install . --no-build-isolation 2>&1 | tail -5; then
         cd "$PROJECT_DIR"
         if python -c "import selective_scan_cuda_core" 2>/dev/null; then
             echo "  ✓ selective_scan 编译安装成功"
