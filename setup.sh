@@ -127,33 +127,81 @@ find_python() {
 if find_python; then
     echo "  ✓ 找到 $PYTHON_BIN ($VER)"
 else
-    echo "  Python >= 3.11 未找到，自动安装 Python 3.12..."
-    if [ "$OS" = "ubuntu" ]; then
-        $SUDO apt-get update -qq 2>&1 | tail -1
-        # Ubuntu 22.04 需要 deadsnakes PPA
-        if [ "$OS_VERSION" = "22.04" ]; then
-            install_pkg "software-properties-common"
-            $SUDO add-apt-repository -y ppa:deadsnakes/ppa -qq 2>&1 | tail -1
-            $SUDO apt-get update -qq 2>&1 | tail -1
+    echo "  Python >= 3.11 未找到，尝试通过 conda 安装 Python 3.12..."
+
+    CONDA_BIN=""
+    for cpath in "$HOME/miniconda3/bin/conda" "$HOME/anaconda3/bin/conda" "/opt/conda/bin/conda" "/root/miniconda3/bin/conda"; do
+        if [ -x "$cpath" ]; then
+            CONDA_BIN="$cpath"
+            break
         fi
-        install_pkg "python3.12"
-        install_pkg "python3.12-venv"
-        install_pkg "python3.12-dev"
-    elif [ "$OS" = "debian" ]; then
-        $SUDO apt-get update -qq 2>&1 | tail -1
-        install_pkg "python3"
-        install_pkg "python3-venv"
-        install_pkg "python3-dev"
-    else
-        install_pkg "python3"
-        install_pkg "python3-devel"
+    done
+    if [ -z "$CONDA_BIN" ]; then
+        CONDA_BIN="conda"
     fi
-    # 再次查找
-    if ! find_python; then
+    CONDA_AVAILABLE=false
+    if command -v "$CONDA_BIN" &>/dev/null || [ -x "$CONDA_BIN" ]; then
+        CONDA_AVAILABLE=true
+    fi
+
+    if $CONDA_AVAILABLE && $CONDA_BIN --version &>/dev/null 2>&1; then
+        echo "  ✓ 找到 conda: $CONDA_BIN"
+        # 在 base 环境中确认 Python 版本
+        CONDA_PY=$($CONDA_BIN run -n base python --version 2>&1 | grep -oP '\d+\.\d+')
+        CONDA_MAJOR=$(echo "$CONDA_PY" | cut -d. -f1)
+        CONDA_MINOR=$(echo "$CONDA_PY" | cut -d. -f2)
+        if [ "$CONDA_MAJOR" -ge 3 ] && [ "${CONDA_MINOR:-0}" -ge 11 ]; then
+            echo "  conda base 环境已有 Python $CONDA_PY，无需安装"
+            PYTHON_BIN="$CONDA_BIN run -n base python"
+            VER="$CONDA_PY"
+        else
+            echo "  → conda 安装 Python 3.12..."
+            $CONDA_BIN install -y -n base python=3.12 -q 2>&1 | tail -3
+            PYTHON_BIN="$CONDA_BIN run -n base python"
+            VER="3.12"
+        fi
+    else
+        echo "  conda 不可用，尝试 Miniconda（从官方源下载）..."
+        MINICONDA_URL="https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh"
+        MINICONDA_SH="/tmp/miniconda_install.sh"
+        curl -fsSL "$MINICONDA_URL" -o "$MINICONDA_SH" 2>&1 || wget -q "$MINICONDA_URL" -O "$MINICONDA_SH" 2>&1
+        if [ -s "$MINICONDA_SH" ]; then
+            bash "$MINICONDA_SH" -b -p "$HOME/miniconda3" 2>&1 | tail -3
+            CONDA_BIN="$HOME/miniconda3/bin/conda"
+            $CONDA_BIN install -y -n base python=3.12 -q 2>&1 | tail -3
+            PYTHON_BIN="$CONDA_BIN run -n base python"
+            VER="3.12"
+            rm -f "$MINICONDA_SH"
+        else
+            echo -e "${YELLOW}  Miniconda 下载失败，回退到系统包管理器${NC}"
+            if [ "$OS" = "ubuntu" ]; then
+                if [ "$OS_VERSION" = "22.04" ]; then
+                    install_pkg "software-properties-common"
+                    $SUDO add-apt-repository -y ppa:deadsnakes/ppa 2>&1 | tail -3
+                    $SUDO apt-get update -qq 2>&1 | tail -1
+                fi
+                install_pkg "python3.12"
+                install_pkg "python3.12-venv"
+                install_pkg "python3.12-dev"
+            elif [ "$OS" = "debian" ]; then
+                install_pkg "python3"
+                install_pkg "python3-venv"
+                install_pkg "python3-dev"
+            else
+                install_pkg "python3"
+                install_pkg "python3-devel"
+            fi
+        fi
+    fi
+
+    # 确认已安装
+    if [ -n "$PYTHON_BIN" ]; then
+        ACTUAL_VER=$(eval "$PYTHON_BIN --version" 2>&1)
+        echo "  ✓ Python 安装成功: $ACTUAL_VER"
+    elif ! find_python; then
         echo -e "${RED}Python 安装失败，请手动安装 Python >= 3.11${NC}"
         exit 1
     fi
-    echo "  ✓ Python $VER 安装成功"
 fi
 
 # 2. 自动安装 CUDA Toolkit（如缺少 nvcc）
