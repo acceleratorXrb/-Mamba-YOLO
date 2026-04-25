@@ -392,21 +392,17 @@ elif [ "$CUDA_AVAILABLE" = true ]; then
     BUILD_LOG="/tmp/selective_scan_build_$$.log"
     if pip install . --no-build-isolation 2>&1 | tee "$BUILD_LOG"; then
         cd "$PROJECT_DIR"
-        echo -n "  → 验证 selective_scan 导入..."
-        IMPORT_ERR=$(timeout 30 python -c "import selective_scan_cuda_core" 2>&1)
-        IMPORT_RC=$?
-        if [ $IMPORT_RC -eq 0 ]; then
-            rm -f "$BUILD_LOG"
-            echo " OK"
+        echo "  → 验证 selective_scan 导入..."
+        IMPORT_LOG="/tmp/selective_scan_import_$$.log"
+        if python -c "import selective_scan_cuda_core" >"$IMPORT_LOG" 2>&1; then
+            rm -f "$BUILD_LOG" "$IMPORT_LOG"
             echo "  ✓ selective_scan 编译安装成功"
         else
-            echo " FAIL"
-            if [ $IMPORT_RC -eq 124 ]; then
-                echo -e "  ${RED}导入超时 (30秒), 可能是 CUDA 库加载卡死${NC}"
-            else
-                echo -e "  ${RED}编译完成但 import 失败 (exit=$IMPORT_RC)${NC}"
-                echo "  错误: $IMPORT_ERR"
-            fi
+            IMPORT_RC=$?
+            echo -e "  ${RED}编译完成但 import 失败 (exit=$IMPORT_RC)${NC}"
+            echo "  --- import 错误输出 ---"
+            cat "$IMPORT_LOG"
+            echo "  --- 编译日志最后 10 行 ---"
             echo "  完整编译日志: $BUILD_LOG"
             tail -20 "$BUILD_LOG"
             exit 1
