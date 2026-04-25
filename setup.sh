@@ -358,22 +358,33 @@ SELECTIVE_SCAN_DIR="$PROJECT_DIR/selective_scan"
 if python -c "import selective_scan_cuda_core" 2>/dev/null; then
     echo "  ✓ selective_scan 已安装，跳过编译"
 elif [ "$CUDA_AVAILABLE" = true ]; then
-    echo "  → 编译中 (须要 1-3 分钟)..."
+    echo "  → 编译中 (须要 1-3 分钟, 此过程会产生大量输出)..."
     cd "$SELECTIVE_SCAN_DIR"
     pip install ninja
-    if pip install . --no-build-isolation 2>&1 | tail -5; then
+    # 保存完整编译日志，方便排查问题
+    BUILD_LOG="/tmp/selective_scan_build_$$.log"
+    if pip install . --no-build-isolation >"$BUILD_LOG" 2>&1; then
         cd "$PROJECT_DIR"
         if python -c "import selective_scan_cuda_core" 2>/dev/null; then
+            rm -f "$BUILD_LOG"
             echo "  ✓ selective_scan 编译安装成功"
         else
             echo -e "${RED}编译完成但 import 失败${NC}"
-            echo "  尝试: cd selective_scan && pip install . 查看详细错误"
+            echo "  完整编译日志: $BUILD_LOG"
+            tail -20 "$BUILD_LOG"
             exit 1
         fi
     else
         cd "$PROJECT_DIR"
         echo -e "${RED}selective_scan 编译失败${NC}"
-        echo "  检查: nvcc --version 是否可用？"
+        echo "  完整编译日志: $BUILD_LOG"
+        echo "  --- 最后 30 行 ---"
+        tail -30 "$BUILD_LOG"
+        echo "  --- 检查关键条件 ---"
+        echo "  nvcc: $(which nvcc 2>/dev/null || echo 'NOT FOUND')"
+        echo "  CUDA_HOME: ${CUDA_HOME:-NOT SET}"
+        echo "  torch cuda: $(python -c 'import torch; print(torch.version.cuda)' 2>/dev/null || echo 'N/A')"
+        echo "  gcc: $(gcc --version 2>/dev/null | head -1 || echo 'NOT FOUND')"
         exit 1
     fi
 else
