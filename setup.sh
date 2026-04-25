@@ -359,8 +359,17 @@ if python -c "import selective_scan_cuda_core" 2>/dev/null; then
     echo "  ✓ selective_scan 已安装，跳过编译"
 elif [ "$CUDA_AVAILABLE" = true ]; then
     echo "  → 编译中 (须要 1-3 分钟, 此过程会产生大量输出)..."
+
+    # 确保 CUDA_HOME 已设置（PyTorch 的 cpp_extension 需要）
+    if [ -z "${CUDA_HOME:-}" ]; then
+        if [ -d "/usr/local/cuda" ]; then
+            export CUDA_HOME="/usr/local/cuda"
+            echo "  CUDA_HOME 设置为: $CUDA_HOME"
+        fi
+    fi
+
     cd "$SELECTIVE_SCAN_DIR"
-    pip install ninja
+    pip install ninja wheel
     # 保存完整编译日志，方便排查问题
     BUILD_LOG="/tmp/selective_scan_build_$$.log"
     if pip install . --no-build-isolation >"$BUILD_LOG" 2>&1; then
