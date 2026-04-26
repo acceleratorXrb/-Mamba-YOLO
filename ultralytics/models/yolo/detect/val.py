@@ -88,7 +88,7 @@ class DetectionValidator(BaseValidator):
 
     def get_desc(self):
         """Return a formatted string summarizing class metrics of YOLO model."""
-        return ("%22s" + "%11s" * 10) % ("Class", "Images", "Instances", "P", "R", "mAP50", "mAP50-95", "mAP75", "mAPs", "mAPm", "mAPl")
+        return ("%22s" + "%11s" * 7) % ("Class", "Images", "Instances", "P", "R", "mAP50", "mAP50-95", "mAP75")
 
     def postprocess(self, preds):
         """Apply Non-maximum suppression to prediction outputs."""
@@ -199,9 +199,11 @@ class DetectionValidator(BaseValidator):
 
         # Print results per class
         if self.args.verbose and not self.training and self.nc > 1 and len(self.stats):
+            # Per-class format: Class, Images, Instances, P, R, mAP50, mAP50-95 (only 4 per-class metrics available)
+            pf_class = "%22s" + "%11i" * 2 + "%11.3g" * 4
             for i, c in enumerate(self.metrics.ap_class_index):
                 LOGGER.info(
-                    pf % (self.names[c], self.nt_per_image[c], self.nt_per_class[c], *self.metrics.class_result(i))
+                    pf_class % (self.names[c], self.nt_per_image[c], self.nt_per_class[c], *self.metrics.class_result(i))
                 )
 
         if self.args.plots:
