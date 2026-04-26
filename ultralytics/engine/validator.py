@@ -196,6 +196,12 @@ class BaseValidator:
         self.check_stats(stats)
         self.speed = dict(zip(self.speed.keys(), (x.t / len(self.dataloader.dataset) * 1e3 for x in dt)))
         self.finalize_metrics()
+        # Run pycocotools eval BEFORE print_results so _coco_ap is populated
+        if self.args.save_json and self.jdict:
+            with open(str(self.save_dir / "predictions.json"), "w") as f:
+                LOGGER.info(f"Saving {f.name}...")
+                json.dump(self.jdict, f)
+            stats = self.eval_json(stats)  # update stats with COCO AP (including mAPs/mAPm/mAPl)
         self.print_results()
         self.run_callbacks("on_val_end")
         if self.training:
@@ -207,11 +213,6 @@ class BaseValidator:
                 "Speed: %.1fms preprocess, %.1fms inference, %.1fms loss, %.1fms postprocess per image"
                 % tuple(self.speed.values())
             )
-            if self.args.save_json and self.jdict:
-                with open(str(self.save_dir / "predictions.json"), "w") as f:
-                    LOGGER.info(f"Saving {f.name}...")
-                    json.dump(self.jdict, f)  # flatten and save
-                stats = self.eval_json(stats)  # update stats
             if self.args.plots or self.args.save_json:
                 LOGGER.info(f"Results saved to {colorstr('bold', self.save_dir)}")
             return stats
