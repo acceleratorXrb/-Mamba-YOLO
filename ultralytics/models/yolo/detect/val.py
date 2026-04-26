@@ -316,14 +316,20 @@ class DetectionValidator(BaseValidator):
                 val.accumulate()
                 val.summarize()
                 # COCO stats order: [AP, AP50, AP75, APs, APm, APl, AR1, AR10, AR100, ARs, ARm, ARl]
+                # VisDrone-VID official metrics: AP and AR at multiple IoU/thresholds
                 stats["metrics/mAP50-95(B)"] = val.stats[0]
                 stats["metrics/mAP50(B)"] = val.stats[1]
                 stats["metrics/mAP75(B)"] = val.stats[2]
                 stats["metrics/mAPs(B)"] = val.stats[3]
                 stats["metrics/mAPm(B)"] = val.stats[4]
                 stats["metrics/mAPl(B)"] = val.stats[5]
+                stats["metrics/AR1(B)"] = val.stats[6]
+                stats["metrics/AR10(B)"] = val.stats[7]
+                stats["metrics/AR100(B)"] = val.stats[8]
                 # Store per-size AP from pycocotools for mean_results()
                 self.metrics._coco_ap = {"s": val.stats[3], "m": val.stats[4], "l": val.stats[5]}
+                # Also store AR for official VisDrone metrics
+                self.metrics._coco_ar = {"1": val.stats[6], "10": val.stats[7], "100": val.stats[8]}
             except Exception as e:
                 LOGGER.warning(f"pycocotools unable to run: {e}")
         return stats
