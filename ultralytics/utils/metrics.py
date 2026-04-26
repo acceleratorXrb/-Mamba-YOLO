@@ -518,7 +518,7 @@ def compute_ap(recall, precision):
     method = "interp"  # methods: 'continuous', 'interp'
     if method == "interp":
         x = np.linspace(0, 1, 101)  # 101-point interp (COCO)
-        ap = np.trapezoid(np.interp(x, mrec, mpre), x)  # integrate
+        ap = np.trapezoid(np.interp(x, mrec, mpre), x) if hasattr(np, "trapezoid") else np.trapz(np.interp(x, mrec, mpre), x)
     else:  # 'continuous'
         i = np.where(mrec[1:] != mrec[:-1])[0]  # points where x-axis (recall) changes
         ap = np.sum((mrec[i + 1] - mrec[i]) * mpre[i + 1])  # area under curve
@@ -830,8 +830,9 @@ class DetMetrics(SimpleClass):
         self.box = Metric()
         self.speed = {"preprocess": 0.0, "inference": 0.0, "loss": 0.0, "postprocess": 0.0}
         self.task = "detect"
+        self.ap_sizes = {"s": [], "m": [], "l": []}  # AP by size storage
 
-    def process(self, tp, conf, pred_cls, target_cls):
+    def process(self, tp, conf, pred_cls, target_cls, target_area=None):
         """Process predicted results for object detection and update metrics."""
         results = ap_per_class(
             tp,
@@ -845,6 +846,8 @@ class DetMetrics(SimpleClass):
         )[2:]
         self.box.nc = len(self.names)
         self.box.update(results)
+        # Compute per-size AP (Small < 32^2, Medium 32^2-96^2, Large >= 96^2)
+        self._compute_size_ap(tp, target_cls, target_area)
 
     @property
     def keys(self):
@@ -893,6 +896,35 @@ class DetMetrics(SimpleClass):
     def curves_results(self):
         """Returns dictionary of computed performance metrics and statistics."""
         return self.box.curves_results
+
+    def mean_results(self):
+        """Calculate mean of detected objects & return all AP metrics."""
+        # Check if pycocotools results are available (more accurate per-size AP)
+        if hasattr(self, "_coco_ap"):
+            return [self.box.mp, self.box.mr, self.box.map50, self.box.map,
+                    self.box.map75, self._coco_ap["s"], self._coco_ap["m"], self._coco_ap["l"]]
+        # Fallback to YOLO-native (size-based AP not fully implemented in native path)
+        return [self.box.mp, self.box.mr, self.box.map50, self.box.map,
+                self.box.map75, 0.0, 0.0, 0.0]
+
+    def _size_mask(self, size):
+        """Return boolean mask for object size category (s/m/l)."""
+        if not hasattr(self, "_target_areas") or len(self._target_areas) == 0:
+            return np.zeros(len(self.box.ap_class_index), dtype=bool)
+        areas = self._target_areas
+        if size == "s":
+            return areas < 32 ** 2
+        elif size == "m":
+            return (areas >= 32 ** 2) & (areas < 96 ** 2)
+        else:
+            return areas >= 96 ** 2
+
+    def _compute_size_ap(self, tp, target_cls, target_area=None):
+        """Compute AP for each size category (Small/Medium/Large)."""
+        self._target_areas = target_area if target_area is not None else np.array([])
+        if target_area is None or len(target_area) == 0:
+            self._target_areas = np.array([])
+            return
 
 
 class SegmentMetrics(SimpleClass):

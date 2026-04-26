@@ -82,7 +82,7 @@ class DetectionValidator(BaseValidator):
         self.confusion_matrix = ConfusionMatrix(nc=self.nc, conf=self.args.conf)
         self.seen = 0
         self.jdict = []
-        self.stats = dict(tp=[], conf=[], pred_cls=[], target_cls=[], target_img=[])
+        self.stats = dict(tp=[], conf=[], pred_cls=[], target_cls=[], target_img=[], target_area=[])
         # Map image file path to integer ID for COCO eval consistency
         self._im_id_map = {str(p): i + 1 for i, p in enumerate(self.dataloader.dataset.im_files)}
 
@@ -135,9 +135,16 @@ class DetectionValidator(BaseValidator):
             )
             pbatch = self._prepare_batch(si, batch)
             cls, bbox = pbatch.pop("cls"), pbatch.pop("bbox")
+            ori_shape = pbatch["ori_shape"]
             nl = len(cls)
             stat["target_cls"] = cls
             stat["target_img"] = cls.unique()
+            # Compute target areas in native-space for size classification (COCO standard)
+            # Small: area < 32^2, Medium: 32^2 <= area < 96^2, Large: area >= 96^2
+            if nl:
+                stat["target_area"] = (bbox[:, 2:] - bbox[:, :2]).prod(dim=1)  # (w * h) in native-space
+            else:
+                stat["target_area"] = torch.zeros(0, device=self.device)
             if npr == 0:
                 if nl:
                     for k in self.stats.keys():
@@ -315,6 +322,8 @@ class DetectionValidator(BaseValidator):
                 stats["metrics/mAPs(B)"] = val.stats[3]
                 stats["metrics/mAPm(B)"] = val.stats[4]
                 stats["metrics/mAPl(B)"] = val.stats[5]
+                # Store per-size AP from pycocotools for mean_results()
+                self.metrics._coco_ap = {"s": val.stats[3], "m": val.stats[4], "l": val.stats[5]}
             except Exception as e:
                 LOGGER.warning(f"pycocotools unable to run: {e}")
         return stats
