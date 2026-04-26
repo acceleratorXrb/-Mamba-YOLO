@@ -351,7 +351,7 @@ class DetectionValidator(BaseValidator):
 
             images.append({
                 "id": img_id,
-                "file_name": img_path.name,
+                "file_name": Path(img_path).name,
                 "width": w,
                 "height": h,
             })
